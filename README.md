@@ -23,13 +23,13 @@ Provides analytics event tracking, IAP purchase tracking, ad revenue tracking, s
 
 ```
 sdk/
-├── android-plugin/               # Gradle project — builds the AAR bridge
-│   ├── src/main/java/
-│   │   └── com/slabgames/noctua/
-│   │       └── GodotNoctua.java  # @UsedByGodot Java bridge
-│   ├── libs/godot3/
-│   │   └── godot-lib.3.6.2.stable.release.aar  # Godot engine AAR (not committed)
-│   └── build.gradle
+├── android-plugin/               # Gradle project — builds the Android bridge AAR
+│   ├── src/main/java/…/GodotNoctua.java   # @UsedByGodot Java bridge (shared)
+│   ├── src/godot3/AndroidManifest.xml     # Godot 3.x: plugin v1 meta-data
+│   ├── src/godot4/AndroidManifest.xml     # Godot 4.x: plugin v2 meta-data
+│   ├── libs/godot3/, libs/godot4/         # Godot engine AARs (not committed)
+│   ├── GodotNoctua.godot3.gdap            # Godot 3.x plugin descriptor
+│   └── build.gradle                       # godot3 / godot4 product flavors
 ├── ios-plugin/                   # Objective-C++ bridge for iOS (Godot 3.6 + 4.x)
 │   ├── src/                      # GodotNoctua singleton + NoctuaSDK Obj-C view
 │   ├── GodotNoctua.gdip          # iOS plugin descriptor
@@ -42,47 +42,85 @@ sdk/
 └── README.md
 ```
 
+Sample projects using this SDK as a git submodule:
+[noctua-godot-sample](https://github.com/NoctuaLabs/noctua-godot-sample) (Godot 4.6).
+
 ---
 
-## Android Installation
+## Common Setup
 
-### 1. Copy credential files
-
-These files contain secrets and are **not committed** to the repository. Copy them from your secure storage after cloning:
+Add this repository to the game as a submodule and register the autoload:
 
 ```bash
-cp /path/to/secure/noctuagg.json     <godot-project-root>/noctuagg.json
-cp /path/to/secure/google-services.json  <godot-project-root>/google-services.json
+git submodule add https://github.com/NoctuaLabs/noctua-godot-sdk.git sdk
 ```
-
-> The Noctua SDK reads `noctuagg.json` from the APK's `assets/` folder at runtime.  
-> A Gradle task (`copyCredentialAssets`) copies it automatically during every build.
-
-### 2. Build the AAR
-
-```bash
-cd sdk/android-plugin
-JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home \
-  ./gradlew assembleGodot3Release
-```
-
-Copy the output to the Godot project's plugin folder:
-
-```bash
-cp build/outputs/aar/GodotNoctua.godot3Release.aar \
-   ../../android/plugins/GodotNoctua.godot3Release.aar
-```
-
-### 3. Configure the Godot project
-
-The autoload is already registered in `project.godot`:
 
 ```ini
+; project.godot
 [autoload]
 noctua="*res://sdk/gd/noctua.gd"
 ```
 
-The plugin descriptor `android/plugins/GodotNoctua.gdap` must point to the AAR:
+Place `noctuagg.json` in the project root (obtain it from the Noctua team; never
+commit it). In **every** export preset, add it to **Resources → Filters to export
+non-resource files** (`include_filter="noctuagg.json"`) — Godot only exports
+`.json` files listed there, and the SDK cannot start without it. Also exclude the
+SDK's build folders: `exclude_filter="sdk/android-plugin/*, sdk/ios-plugin/*"`.
+
+---
+
+## Android Installation
+
+### 1. Build the AAR
+
+Download the Godot engine AAR for your version from the
+[Godot releases](https://github.com/godotengine/godot/releases) into
+`android-plugin/libs/godot3/` or `libs/godot4/`, then (JDK 17):
+
+```bash
+cd sdk/android-plugin
+./gradlew assembleGodot4Release     # Godot 4.2+
+./gradlew assembleGodot3Release     # Godot 3.6
+```
+
+Copy `build/outputs/aar/GodotNoctua.godot4Release.aar` (or `godot3Release`) into the
+game's `android/plugins/` folder, and place `google-services.json` in the project root.
+
+### 2a. Godot 4.2+ — EditorExportPlugin
+
+Godot 4 uses a v2 plugin: an editor addon that injects the AAR and Maven dependency
+at export time. Create `res://addons/GodotNoctua/` with a `plugin.cfg`, an
+`EditorPlugin` that calls `add_export_plugin()`, and this export plugin:
+
+```gdscript
+@tool
+extends EditorExportPlugin
+
+func _get_name() -> String:
+	return "GodotNoctua"
+
+func _supports_platform(platform: EditorExportPlatform) -> bool:
+	return platform is EditorExportPlatformAndroid
+
+func _get_android_libraries(platform: EditorExportPlatform, debug: bool) -> PackedStringArray:
+	# Use a res:// path — relative paths are resolved under res://addons/.
+	return PackedStringArray(["res://android/plugins/GodotNoctua.godot4Release.aar"])
+
+func _get_android_dependencies(platform: EditorExportPlatform, debug: bool) -> PackedStringArray:
+	return PackedStringArray(["com.noctuagames.sdk:noctua-android-sdk:0.35.1"])
+
+func _get_android_dependencies_maven_repos(platform: EditorExportPlatform, debug: bool) -> PackedStringArray:
+	return PackedStringArray(["https://dl.google.com/dl/android/maven2", "https://repo1.maven.org/maven2"])
+```
+
+The sample app contains a complete copy in
+[`addons/GodotNoctua/`](https://github.com/NoctuaLabs/noctua-godot-sample/tree/main/addons/GodotNoctua).
+Enable it in **Project → Project Settings → Plugins**, install the Android build
+template, and tick **Use Gradle Build** in the Android preset.
+
+### 2b. Godot 3.6 — .gdap descriptor
+
+Copy `android-plugin/GodotNoctua.godot3.gdap` to `android/plugins/GodotNoctua.gdap`:
 
 ```ini
 [config]
@@ -95,11 +133,9 @@ remote=["com.noctuagames.sdk:noctua-android-sdk:0.35.1"]
 custom_maven_repos=["https://dl.google.com/dl/android/maven2", "https://repo1.maven.org/maven2"]
 ```
 
-### 4. Enable the plugin in Godot
-
-> **Project → Export → Android → Plugins → GodotNoctua** ✓
-
-Enable **Use Custom Build** and set **Min SDK** to `23`.
+Then in **Project → Export → Android**: enable **Use Custom Build**, tick
+**Plugins → GodotNoctua**, set **Min SDK** to `23`. Godot 3.6.3's Gradle build
+requires JDK 17 exactly (**Editor Settings → Export → Android → Java SDK Path**).
 
 ---
 
@@ -414,11 +450,12 @@ Both files are gitignored. Place them in the project root before exporting:
 | `google-services.json` | Firebase project config (Android) — required by Crashlytics and Analytics |
 | `GoogleService-Info.plist` | Firebase project config (iOS) — added to the app bundle by `setup_xcode.sh` |
 
-`noctuagg.json` is automatically copied to `android/build/assets/` by the
-`copyCredentialAssets` Gradle task on every build.
+`noctuagg.json` reaches the app only through the export preset's include filter
+(Android: packed into APK `assets/`) or, on iOS, through `setup_xcode.sh` (added to
+the app bundle).
 
-`google-services.json` must be placed in `android/build/` for the
-`com.google.gms.google-services` Gradle plugin to process it.
+`google-services.json` must also be placed in the Android build template folder
+(`android/build/`) for the `com.google.gms.google-services` Gradle plugin to process it.
 
 ---
 
@@ -426,9 +463,10 @@ Both files are gitignored. Place them in the project root before exporting:
 
 | Error | Cause | Fix |
 |-------|-------|-----|
-| `Failed to load noctuagg.json` | File missing from APK assets | Place `noctuagg.json` in project root; Gradle copies it automatically |
+| `Failed to load noctuagg.json` | File missing from APK assets | Add `noctuagg.json` to the export preset's include filter (see Common Setup) |
 | `Crashlytics build ID is missing` | `firebase-crashlytics-gradle` plugin not applied | Ensure `build.gradle` has the Crashlytics classpath + `apply plugin` |
 | `Invalid plugin config file` | AAR missing from `android/plugins/` | Run `./gradlew assembleGodot3Release` and copy the AAR |
+| Godot 4: `Transform's input file does not exist: …/addons/android/plugins/…aar` | Relative path in `_get_android_libraries()` | Return a `res://android/plugins/…` path |
 | `Invalid Java version` | Godot 3.6.2 requires Java 17 exactly | Set `JAVA_HOME` to JDK 17; `gradlew` auto-sets it if installed via Homebrew |
 | `ClassCastException: InternalNoctuaApp cannot be cast to Activity` | `getApplicationContext()` passed to `Noctua.init()` | Pass `activity` directly (already fixed in current source) |
 | iOS: `GodotNoctua: NoctuaSDK is not linked` | Pods not installed / `.xcodeproj` opened instead of `.xcworkspace` | Run `setup_xcode.sh`, open the `.xcworkspace` |
