@@ -223,19 +223,6 @@ Maps to: `Noctua.trackCustomEvent(eventName, payload)`
 
 ### Revenue Tracking
 
-#### `track_custom_event_with_revenue(event_name: String, revenue: float, currency: String = "USD", payload: Dictionary = {}) -> void`
-
-Tracks a custom event that carries a monetary revenue value.
-
-```gdscript
-noctua.track_custom_event_with_revenue("purchase", 0.99, "USD")
-noctua.track_custom_event_with_revenue("bundle_sale", 4.99, "USD", {"sku": "gems_500"})
-```
-
-Maps to: `Noctua.trackCustomEventWithRevenue(eventName, revenue, currency, payload)`
-
----
-
 #### `track_purchase(order_id: String, amount: String, currency: String, payload: Dictionary) -> void`
 
 Tracks an in-app purchase (IAP) transaction.

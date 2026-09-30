@@ -27,10 +27,6 @@ NS_ASSUME_NONNULL_BEGIN
 
 // Tracking
 + (void)trackCustomEvent:(NSString *)eventName payload:(NSDictionary<NSString *, id> *)payload;
-+ (void)trackCustomEventWithRevenue:(NSString *)eventName
-                            revenue:(double)revenue
-                           currency:(NSString *)currency
-                            payload:(NSDictionary<NSString *, id> *)payload;
 + (void)trackPurchaseWithOrderId:(NSString *)orderId
                           amount:(double)amount
                         currency:(NSString *)currency

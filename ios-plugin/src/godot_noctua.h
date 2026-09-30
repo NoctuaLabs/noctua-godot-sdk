@@ -34,7 +34,6 @@ public:
 
 	// Event tracking
 	void track_event(String event, Dictionary params);
-	void track_custom_event_with_revenue(String event_name, String revenue, String currency, Dictionary payload);
 	void track_purchase(String order_id, String amount, String currency, Dictionary payload);
 	void track_ad_revenue(String ad_source, String revenue, String currency, Dictionary params);
 

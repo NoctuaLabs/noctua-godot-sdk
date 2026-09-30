@@ -61,24 +61,6 @@ func track_event_with_params(event: String, params: Dictionary) -> void:
 
 # ── Revenue Tracking ──────────────────────────────────────────────────────────
 
-## Tracks a custom event that also carries a monetary revenue value.
-##
-## Maps to: [code]Noctua.trackCustomEventWithRevenue(eventName, revenue, currency, payload)[/code]
-##
-## [b]Example:[/b]
-## [codeblock]
-## noctua.track_custom_event_with_revenue("purchase", 0.99, "USD")
-## noctua.track_custom_event_with_revenue("bundle_sale", 4.99, "USD", {"sku": "gems_500"})
-## [/codeblock]
-##
-## [param event_name] Name of the revenue event (e.g. [code]"purchase"[/code]).
-## [param revenue]    Revenue amount as a [float] (e.g. [code]0.99[/code]).
-## [param currency]   ISO 4217 currency code. Defaults to [code]"USD"[/code].
-## [param payload]    Optional flat [Dictionary] of extra data. Defaults to [code]{}[/code].
-func track_custom_event_with_revenue(event_name: String, revenue: float, currency := "USD", payload := {}) -> void:
-	if _noctua != null:
-		_noctua.track_custom_event_with_revenue(event_name, str(revenue), currency, payload)
-
 ## Tracks an in-app purchase (IAP) transaction.
 ##
 ## Maps to: [code]Noctua.trackPurchase(orderId, amount, currency, extraPayload)[/code]

@@ -38,7 +38,6 @@ static bool verify_sdk_selectors(Class<NoctuaSDKAPI> p_cls) {
 	const SEL selectors[] = {
 		@selector(initNoctuaWithVerifyPurchasesOnServer:useStoreKit1:error:),
 		@selector(trackCustomEvent:payload:),
-		@selector(trackCustomEventWithRevenue:revenue:currency:payload:),
 		@selector(trackPurchaseWithOrderId:amount:currency:extraPayload:),
 		@selector(trackAdRevenueWithSource:revenue:currency:extraPayload:),
 		@selector(setSessionTagWithTag:),
@@ -189,20 +188,6 @@ void GodotNoctua::track_event(String event, Dictionary params) {
 	});
 }
 
-void GodotNoctua::track_custom_event_with_revenue(String event_name, String revenue, String currency, Dictionary payload) {
-	if (!initialized) {
-		return;
-	}
-	double value = 0.0;
-	ERR_FAIL_COND_MSG(!parse_amount(revenue, &value), "GodotNoctua: invalid revenue '" + revenue + "'.");
-	NSString *ns_event = to_ns(event_name);
-	NSString *ns_currency = to_ns(currency);
-	NSDictionary *ns_payload = to_ns_dictionary(payload);
-	run_on_main(^{
-		[noctua_sdk_class() trackCustomEventWithRevenue:ns_event revenue:value currency:ns_currency payload:ns_payload];
-	});
-}
-
 void GodotNoctua::track_purchase(String order_id, String amount, String currency, Dictionary payload) {
 	if (!initialized) {
 		return;
@@ -327,7 +312,6 @@ void GodotNoctua::on_offline() {
 
 void GodotNoctua::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("track_event", "event", "params"), &GodotNoctua::track_event);
-	ClassDB::bind_method(D_METHOD("track_custom_event_with_revenue", "event_name", "revenue", "currency", "payload"), &GodotNoctua::track_custom_event_with_revenue);
 	ClassDB::bind_method(D_METHOD("track_purchase", "order_id", "amount", "currency", "payload"), &GodotNoctua::track_purchase);
 	ClassDB::bind_method(D_METHOD("track_ad_revenue", "ad_source", "revenue", "currency", "params"), &GodotNoctua::track_ad_revenue);
 

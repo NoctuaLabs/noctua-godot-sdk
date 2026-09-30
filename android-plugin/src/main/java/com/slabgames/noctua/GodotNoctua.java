@@ -178,39 +178,6 @@ public class GodotNoctua extends GodotPlugin {
     }
 
     /**
-     * Tracks a custom event that also carries a monetary revenue value.
-     *
-     * <p>Maps to: {@code Noctua.trackCustomEventWithRevenue(eventName, revenue, currency, payload)}
-     *
-     * <p>GDScript usage:
-     * <pre>
-     *   noctua.track_custom_event_with_revenue("purchase", 0.99, "USD")
-     *   noctua.track_custom_event_with_revenue("purchase", 4.99, "USD", {"sku": "gems_100"})
-     * </pre>
-     *
-     * @param eventName name of the revenue event (e.g. {@code "purchase"})
-     * @param revenue   revenue amount as a decimal string (e.g. {@code "0.99"});
-     *                  converted to {@code Double} before calling the native SDK
-     * @param currency  ISO 4217 currency code (e.g. {@code "USD"}, {@code "IDR"})
-     * @param payload   optional flat key-value payload; pass {@code {}} if unused
-     */
-    @UsedByGodot
-    public void track_custom_event_with_revenue(final String eventName, final String revenue,
-                                                final String currency, final Dictionary payload) {
-        if (!_inited) return;
-        Objects.requireNonNull(getActivity()).runOnUiThread(() -> {
-            Noctua.INSTANCE.trackCustomEventWithRevenue(
-                eventName,
-                Double.parseDouble(revenue),
-                currency,
-                toSafeMap(payload)
-            );
-            Log.d(TAG, "track_custom_event_with_revenue: " + eventName
-                    + " " + revenue + " " + currency);
-        });
-    }
-
-    /**
      * Tracks an in-app purchase (IAP) transaction.
      *
      * <p>Maps to: {@code Noctua.trackPurchase(orderId, amount, currency, extraPayload)}
