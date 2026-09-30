@@ -7,5 +7,5 @@ binary="GodotNoctua.godot3Release.aar"
 [dependencies]
 
 local=[]
-remote=["com.noctuagames.sdk:noctua-android-sdk:0.34.0"]
+remote=["com.noctuagames.sdk:noctua-android-sdk:0.35.1"]
 custom_maven_repos=[]

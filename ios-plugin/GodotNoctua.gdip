@@ -1,0 +1,28 @@
+; GodotNoctua iOS plugin descriptor — Godot 3.6.x and 4.2+ share this format.
+;
+; Install into the game project as:
+;   res://ios/plugins/GodotNoctua/GodotNoctua.gdip
+;   res://ios/plugins/GodotNoctua/GodotNoctua.debug.xcframework    (built by scripts/build.sh)
+;   res://ios/plugins/GodotNoctua/GodotNoctua.release.xcframework
+; then tick Export → iOS → Plugins → GodotNoctua.
+;
+; NoctuaSDK itself (and Adjust, Firebase, Facebook) is NOT listed here: it is
+; installed with CocoaPods after export by scripts/setup_xcode.rb.
+
+[config]
+name="GodotNoctua"
+binary="GodotNoctua.xcframework"
+
+initialization="godot_noctua_init"
+deinitialization="godot_noctua_deinit"
+
+[dependencies]
+linked=[]
+embedded=[]
+system=["Foundation.framework"]
+capabilities=[]
+files=[]
+linker_flags=["-ObjC"]
+
+[plist]
+NSUserTrackingUsageDescription:string_input="This identifier will be used to deliver personalized ads to you."

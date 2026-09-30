@@ -73,7 +73,7 @@ dependencies {
     godot3CompileOnly fileTree(dir: 'libs/godot3', include: ['godot-lib*.aar'])
     godot4CompileOnly fileTree(dir: 'libs/godot4', include: ['godot-lib*.aar'])
 
-    implementation("com.noctuagames.sdk:noctua-android-sdk:0.34.0")
+    implementation("com.noctuagames.sdk:noctua-android-sdk:0.35.1")
 }
 
 ext {

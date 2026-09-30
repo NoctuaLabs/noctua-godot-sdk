@@ -35,3 +35,8 @@ google-services.json
 # Claude Code
 .claude/
 CLAUDE.md
+
+# iOS plugin build inputs/outputs
+ios-plugin/.godot/
+ios-plugin/.build/
+ios-plugin/bin/

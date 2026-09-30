@@ -1,6 +1,6 @@
-# Noctua SDK — Godot 3.x Plugin
+# Noctua SDK — Godot Plugin (Android + iOS)
 
-GDScript bridge to the [Noctua Native SDK](https://github.com/NoctuaLabs/noctua-native-sdk) for Godot 3.6.x Android projects.
+GDScript bridge to the [Noctua Native SDK](https://github.com/NoctuaLabs/noctua-native-sdk) for Godot 3.6.x and 4.2+ projects on Android and iOS.
 
 Provides analytics event tracking, IAP purchase tracking, ad revenue tracking, session management, and A/B experiment support — all callable from GDScript via a single `noctua` autoload singleton.
 
@@ -10,10 +10,12 @@ Provides analytics event tracking, IAP purchase tracking, ad revenue tracking, s
 
 | Dependency | Version |
 |------------|---------|
-| Godot Engine | 3.6.x |
+| Godot Engine | 3.6.x or 4.2+ |
 | Android min SDK | 23 |
-| Java (build only) | 17 |
-| Noctua Native SDK | `0.34.0+` |
+| iOS deployment target | 15.0 |
+| Java (Android build only) | 17 |
+| Xcode + CocoaPods (iOS only) | Xcode 16+, CocoaPods 1.16+ |
+| Noctua Native SDK | `0.35.1+` (Android) · `0.40.1+` (iOS) |
 
 ---
 
@@ -28,14 +30,21 @@ sdk/
 │   ├── libs/godot3/
 │   │   └── godot-lib.3.6.2.stable.release.aar  # Godot engine AAR (not committed)
 │   └── build.gradle
+├── ios-plugin/                   # Objective-C++ bridge for iOS (Godot 3.6 + 4.x)
+│   ├── src/                      # GodotNoctua singleton + NoctuaSDK Obj-C view
+│   ├── GodotNoctua.gdip          # iOS plugin descriptor
+│   └── scripts/
+│       ├── build.sh              # builds GodotNoctua.{debug,release}.xcframework
+│       ├── setup_xcode.sh        # post-export: Podfile + pod install
+│       └── noctua_xcode_project.rb
 ├── gd/
-│   └── noctua.gd                 # GDScript autoload singleton
+│   └── noctua.gd                 # GDScript autoload singleton (Android + iOS)
 └── README.md
 ```
 
 ---
 
-## Installation
+## Android Installation
 
 ### 1. Copy credential files
 
@@ -82,7 +91,7 @@ binary_type="local"
 binary="GodotNoctua.godot3Release.aar"
 
 [dependencies]
-remote=["com.noctuagames.sdk:noctua-android-sdk:0.34.0"]
+remote=["com.noctuagames.sdk:noctua-android-sdk:0.35.1"]
 custom_maven_repos=["https://dl.google.com/dl/android/maven2", "https://repo1.maven.org/maven2"]
 ```
 
@@ -91,6 +100,53 @@ custom_maven_repos=["https://dl.google.com/dl/android/maven2", "https://repo1.ma
 > **Project → Export → Android → Plugins → GodotNoctua** ✓
 
 Enable **Use Custom Build** and set **Min SDK** to `23`.
+
+---
+
+## iOS Installation
+
+The iOS plugin registers the same `GodotNoctua` singleton as the Android plugin,
+so `noctua.gd` and your game scripts work unchanged. NoctuaSDK (Swift) and its
+dependencies (Adjust, Firebase, Facebook) are installed with CocoaPods **after**
+each Godot export.
+
+### 1. Build the plugin
+
+```bash
+python3 -m pip install --user scons      # once
+sdk/ios-plugin/scripts/build.sh 4.x      # Godot 4.2+ (default headers: 4.6.1-stable)
+sdk/ios-plugin/scripts/build.sh 3.x      # Godot 3.6 (default headers: 3.6.3-stable)
+```
+
+The first run clones the matching Godot source into `ios-plugin/.godot/` and
+generates its headers (a few minutes). Output: `ios-plugin/bin/<3.x|4.x>/GodotNoctua/`.
+
+### 2. Add it to the game
+
+Copy `ios-plugin/bin/<3.x|4.x>/GodotNoctua/` to `res://ios/plugins/GodotNoctua/`, then in
+**Project → Export → iOS**:
+
+- tick **Plugins → GodotNoctua**
+- set **Min iOS Version** to `15.0`, your **App Store Team ID** and **Bundle Identifier**
+- Godot 4: tick **Export Project Only**
+- Godot 3.6: the App Store icon (1024×1024) must be opaque or the export stops
+
+Place `noctuagg.json` and `GoogleService-Info.plist` in the project root.
+
+### 3. Export, then link NoctuaSDK
+
+```bash
+sdk/ios-plugin/scripts/setup_xcode.sh <exported-xcode-dir> <godot-project-dir>
+```
+
+Run it after every export, then open `<name>.xcworkspace` (not the `.xcodeproj`).
+It copies the config files into the app bundle, writes a Podfile pinning
+NoctuaSDK `0.40.1` (override with `NOCTUA_IOS_SDK_VERSION`), runs `pod install`
+and fixes the Godot project's build settings for CocoaPods. It also adds a
+`.gdignore` to the export folder so Godot never imports `Pods/`.
+
+> Simulator: Godot's official iOS templates ship an x86_64-only simulator
+> library, which iOS 26 simulators cannot run. Test on a device.
 
 ---
 
@@ -316,6 +372,25 @@ Noctua.INSTANCE  (Kotlin object singleton)
 Noctua Native SDK  (com.noctuagames.sdk:noctua-android-sdk)
 ```
 
+On iOS the same `GodotNoctua` singleton is implemented in Objective-C++:
+
+```
+GDScript (noctua.gd autoload)
+    ▼
+GodotNoctua (ios-plugin/src/godot_noctua.mm, main-thread dispatch)
+    │  converts Dictionary → NSDictionary, String amounts → double
+    ▼
+Noctua (NoctuaSDK Swift class, CocoaPods)
+    │  resolved at runtime via NSClassFromString("NoctuaSDK.Noctua")
+    │  reads noctuagg.json from the app bundle
+    ▼
+Adjust · Firebase · Facebook · Noctua tracker
+```
+
+The plugin binary does not link NoctuaSDK directly — it looks the class up at
+start-up and checks every selector it uses, logging any mismatch. Upgrading the
+iOS SDK is therefore a Podfile version bump, not a plugin rebuild.
+
 ### Type conversion — `GDScript → Java → Kotlin`
 
 | GDScript type | Java (Dictionary value) | Passed to SDK |
@@ -325,7 +400,7 @@ Noctua Native SDK  (com.noctuagames.sdk:noctua-android-sdk)
 | `bool` | `Boolean` | `Boolean` |
 | `String` | `String` | `String` |
 | other | any | `toString()` |
-| revenue/amount | `String` from GDScript | `Double.parseDouble()` in Java |
+| revenue/amount | `String` from GDScript | `Double.parseDouble()` in Java · `NSScanner` (locale-independent) on iOS |
 
 ---
 
@@ -336,7 +411,8 @@ Both files are gitignored. Place them in the project root before exporting:
 | File | Purpose |
 |------|---------|
 | `noctuagg.json` | Noctua SDK config — `clientId`, `gameId`, Firebase, Adjust keys |
-| `google-services.json` | Firebase project config — required by Crashlytics and Analytics |
+| `google-services.json` | Firebase project config (Android) — required by Crashlytics and Analytics |
+| `GoogleService-Info.plist` | Firebase project config (iOS) — added to the app bundle by `setup_xcode.sh` |
 
 `noctuagg.json` is automatically copied to `android/build/assets/` by the
 `copyCredentialAssets` Gradle task on every build.
@@ -355,6 +431,10 @@ Both files are gitignored. Place them in the project root before exporting:
 | `Invalid plugin config file` | AAR missing from `android/plugins/` | Run `./gradlew assembleGodot3Release` and copy the AAR |
 | `Invalid Java version` | Godot 3.6.2 requires Java 17 exactly | Set `JAVA_HOME` to JDK 17; `gradlew` auto-sets it if installed via Homebrew |
 | `ClassCastException: InternalNoctuaApp cannot be cast to Activity` | `getApplicationContext()` passed to `Noctua.init()` | Pass `activity` directly (already fixed in current source) |
+| iOS: `GodotNoctua: NoctuaSDK is not linked` | Pods not installed / `.xcodeproj` opened instead of `.xcworkspace` | Run `setup_xcode.sh`, open the `.xcworkspace` |
+| iOS: `NoctuaSDK is missing +<selector>` | NoctuaSDK version changed its Obj-C API | Pin `NOCTUA_IOS_SDK_VERSION` to a supported version or update `noctua_sdk_api.h` |
+| iOS: `building for 'iOS-simulator', but linking in dylib … built for 'iOS'` | Godot's recursive `$(PROJECT_DIR)/**` search path reached `Pods/` | Re-run `setup_xcode.sh` (it scopes the search paths) |
+| iOS (Godot 3.6): black screen after `setup 0` | App launched while the device was locked/inactive — Godot 3 starts the engine only once the view is active | Unlock the device and relaunch |
 
 ---
 
