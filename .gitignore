@@ -43,3 +43,6 @@ ios-plugin/bin/
 
 # Packaged addon zips
 dist/
+
+# Cached Godot engine AARs (scripts/fetch_godot_libs.sh)
+android-plugin/.godot-libs/

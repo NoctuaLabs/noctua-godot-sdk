@@ -1,0 +1,170 @@
+# CI builds the Android AARs, the iOS plugins and both addon zips on every push
+# and pull request. On main it also releases: when Conventional Commits since
+# the last tag warrant a new version (feat → minor, fix/perf → patch,
+# feat!/BREAKING CHANGE → major) it tags v<version> and publishes a GitHub
+# Release with the zips attached. See scripts/next_version.sh.
+#
+# Runs on the self-hosted macOS runner labelled `noctua-godot` (Xcode is needed
+# for the iOS plugin). Downloads and the Godot source clone are cached in
+# ~/Library/Caches/noctua-godot-ci so they survive workspace cleans.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump (auto follows Conventional Commits and skips if nothing to release)
+        type: choice
+        options: [auto, patch, minor, major]
+        default: auto
+      version:
+        description: Exact version to release, e.g. 1.2.0 (overrides bump)
+        type: string
+        required: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  GODOT3_TAG: 3.6.2-stable
+  GODOT4_TAG: 4.6.1-stable
+  GODOT3_IOS_TAG: 3.6.3-stable
+
+jobs:
+  version:
+    name: Next version
+    # A self-hosted runner must never run code from forks.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, macOS, noctua-godot]
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - id: next
+        name: Compute next version
+        env:
+          BUMP: ${{ inputs.bump }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ] || [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            echo "Not on main: build only."
+            exit 0
+          fi
+          arg="${VERSION:-}"
+          [ -z "$arg" ] && [ "${BUMP:-auto}" != auto ] && arg="$BUMP"
+          version="$(scripts/next_version.sh ${arg:+"$arg"})"
+          if [ -n "$version" ] && git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+            echo "::warning::Tag v$version already exists; nothing to release."
+            version=""
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Next version: ${version:-<none — no releasable commits>}" >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: Build plugins and addon zips
+    needs: version
+    runs-on: [self-hosted, macOS, noctua-godot]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up toolchain
+        # JAVA_HOME / ANDROID_HOME can be overridden with repository variables.
+        env:
+          JAVA_HOME_OVERRIDE: ${{ vars.JAVA_HOME }}
+          ANDROID_HOME_OVERRIDE: ${{ vars.ANDROID_HOME }}
+        run: |
+          cache="$HOME/Library/Caches/noctua-godot-ci"
+          JAVA_HOME="${JAVA_HOME_OVERRIDE:-/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home}"
+          ANDROID_HOME="${ANDROID_HOME_OVERRIDE:-$HOME/Library/Android/sdk}"
+          {
+            echo "GODOT_LIBS_CACHE=$cache/godot-libs"
+            echo "GODOT_SRC_DIR=$cache/godot-src"
+            echo "JAVA_HOME=$JAVA_HOME"
+            echo "ANDROID_HOME=$ANDROID_HOME"
+          } >> "$GITHUB_ENV"
+          python3 -m pip install --user --quiet --disable-pip-version-check scons
+          echo "$(python3 -m site --user-base)/bin" >> "$GITHUB_PATH"
+          "$JAVA_HOME/bin/java" -version
+          test -d "$ANDROID_HOME" || { echo "::error::ANDROID_HOME not found: $ANDROID_HOME"; exit 1; }
+          xcodebuild -version
+
+      - name: Fetch Godot engine AARs
+        run: scripts/fetch_godot_libs.sh "$GODOT3_TAG" "$GODOT4_TAG"
+
+      - name: Build Android AARs
+        working-directory: android-plugin
+        run: ./gradlew --no-daemon assembleGodot3Release assembleGodot4Release
+
+      - name: Build iOS plugin (Godot 3.x)
+        run: ios-plugin/scripts/build.sh 3.x "$GODOT3_IOS_TAG"
+
+      - name: Build iOS plugin (Godot 4.x)
+        run: ios-plugin/scripts/build.sh 4.x "$GODOT4_TAG"
+
+      - name: Package addons and release assets
+        env:
+          NOCTUA_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          rm -rf dist
+          scripts/package_addon.sh 3.x
+          scripts/package_addon.sh 4.x
+          cp android-plugin/build/outputs/aar/GodotNoctua.godot3Release.aar \
+             android-plugin/build/outputs/aar/GodotNoctua.godot4Release.aar dist/
+          for line in 3 4; do
+            (cd "ios-plugin/bin/$line.x" && zip -qry "$GITHUB_WORKSPACE/dist/GodotNoctua-ios-godot$line.zip" GodotNoctua -x '*.DS_Store')
+          done
+          (cd dist && shasum -a 256 -- * > SHA256SUMS.txt)
+          ls -la dist
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: godot-noctua-${{ needs.version.outputs.version || github.sha }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Tag and publish release
+    needs: [version, build]
+    if: needs.version.outputs.version != ''
+    runs-on: [self-hosted, macOS, noctua-godot]
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: godot-noctua-${{ needs.version.outputs.version }}
+          path: dist
+
+      - name: Create tag and GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NOCTUA_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          scripts/release_notes.sh > "$RUNNER_TEMP/notes.md"
+          cat >> "$RUNNER_TEMP/notes.md" <<EOF
+
+          ### Install
+
+          Godot 4.2+: extract \`GodotNoctua-godot4-v$NOCTUA_VERSION.zip\` into the project root, then enable **GodotNoctua** in Project Settings → Plugins.
+          Godot 3.6: use \`GodotNoctua-godot3-v$NOCTUA_VERSION.zip\` the same way.
+          EOF
+          gh release create "v$NOCTUA_VERSION" dist/* \
+            --target "$GITHUB_SHA" \
+            --title "v$NOCTUA_VERSION" \
+            --notes-file "$RUNNER_TEMP/notes.md"
+          echo "Released [v$NOCTUA_VERSION]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/v$NOCTUA_VERSION)" >> "$GITHUB_STEP_SUMMARY"
