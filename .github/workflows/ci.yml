@@ -46,7 +46,7 @@ jobs:
     outputs:
       version: ${{ steps.next.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -76,7 +76,7 @@ jobs:
     runs-on: [self-hosted, macOS, noctua-godot]
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up toolchain
         # JAVA_HOME / ANDROID_HOME can be overridden with repository variables.
@@ -127,7 +127,7 @@ jobs:
           (cd dist && shasum -a 256 -- * > SHA256SUMS.txt)
           ls -la dist
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: godot-noctua-${{ needs.version.outputs.version || github.sha }}
           path: dist/*
@@ -141,11 +141,11 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: godot-noctua-${{ needs.version.outputs.version }}
           path: dist
