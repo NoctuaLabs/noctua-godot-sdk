@@ -23,6 +23,12 @@ class GodotNoctua : public Object {
 	/// true once Noctua.initNoctua() succeeded; every call is a no-op before that.
 	bool initialized = false;
 
+	/// Why initialisation failed, or empty when it succeeded / has not run yet.
+	String init_error;
+
+	/// true when ready; otherwise warns once per method that the call was ignored.
+	bool require_initialized(const char *p_method);
+
 protected:
 	static void _bind_methods();
 
@@ -51,6 +57,10 @@ public:
 	// Network state
 	void on_online();
 	void on_offline();
+
+	// Diagnostics
+	bool is_initialized() const;
+	String get_init_error() const;
 
 	GodotNoctua();
 	~GodotNoctua();

@@ -1,5 +1,6 @@
 #include "godot_noctua.h"
 
+#include <cmath>
 #import <Foundation/Foundation.h>
 
 #import "noctua_sdk_api.h"
@@ -97,7 +98,7 @@ static NSDictionary<NSString *, id> *to_ns_dictionary(const Dictionary &p_dict) 
 /// Locale-independent ('.' decimal separator), like Java's Double.parseDouble.
 static bool parse_amount(const String &p_amount, double *r_value) {
 	NSScanner *scanner = [NSScanner scannerWithString:to_ns(p_amount.strip_edges())];
-	return [scanner scanDouble:r_value] && [scanner isAtEnd];
+	return [scanner scanDouble:r_value] && [scanner isAtEnd] && std::isfinite(*r_value);
 }
 
 /// Runs SDK calls on the main thread — the SDK drives UIKit/StoreKit internally.
@@ -146,10 +147,12 @@ void GodotNoctua::initialize_sdk() {
 
 	Class<NoctuaSDKAPI> sdk = noctua_sdk_class();
 	if (sdk == nil) {
+		init_error = "NoctuaSDK is not linked (run sdk/ios-plugin/scripts/setup_xcode.sh and open the .xcworkspace)";
 		ERR_PRINT("GodotNoctua: NoctuaSDK is not linked. Run sdk/ios-plugin/scripts/setup_xcode.rb on the exported Xcode project, then build the generated .xcworkspace.");
 		return;
 	}
 	if (!verify_sdk_selectors(sdk)) {
+		init_error = "linked NoctuaSDK does not match this plugin (see the Xcode console for missing methods)";
 		ERR_PRINT("GodotNoctua: linked NoctuaSDK does not match this plugin — see the Xcode console for missing methods.");
 		return;
 	}
@@ -158,6 +161,7 @@ void GodotNoctua::initialize_sdk() {
 	// Same defaults as the Swift overload: no server-side verification, StoreKit 1.
 	BOOL ok = [sdk initNoctuaWithVerifyPurchasesOnServer:NO useStoreKit1:YES error:&error];
 	if (!ok) {
+		init_error = to_godot(error.localizedDescription);
 		ERR_PRINT("GodotNoctua: Noctua SDK initialization failed: " + to_godot(error.localizedDescription) +
 				" (is noctuagg.json in the app bundle?)");
 		return;
@@ -175,10 +179,36 @@ void GodotNoctua::initialize_sdk() {
 	}];
 }
 
+bool GodotNoctua::require_initialized(const char *p_method) {
+	if (initialized) {
+		return true;
+	}
+	static NSMutableSet<NSString *> *warned = [NSMutableSet set];
+	NSString *method = [NSString stringWithUTF8String:p_method];
+	@synchronized(warned) {
+		if ([warned containsObject:method]) {
+			return false;
+		}
+		[warned addObject:method];
+	}
+	String reason = init_error.length() == 0 ? String() : " (" + init_error + ")";
+	WARN_PRINT(String("GodotNoctua: ") + p_method + " ignored: Noctua SDK is not initialized" + reason +
+			". Check that noctuagg.json is in the app bundle (setup_xcode.sh).");
+	return false;
+}
+
+bool GodotNoctua::is_initialized() const {
+	return initialized;
+}
+
+String GodotNoctua::get_init_error() const {
+	return init_error;
+}
+
 // ── Event Tracking ────────────────────────────────────────────────────────────
 
 void GodotNoctua::track_event(String event, Dictionary params) {
-	if (!initialized) {
+	if (!require_initialized("track_event")) {
 		return;
 	}
 	NSString *ns_event = to_ns(event);
@@ -189,7 +219,7 @@ void GodotNoctua::track_event(String event, Dictionary params) {
 }
 
 void GodotNoctua::track_purchase(String order_id, String amount, String currency, Dictionary payload) {
-	if (!initialized) {
+	if (!require_initialized("track_purchase")) {
 		return;
 	}
 	double value = 0.0;
@@ -203,7 +233,7 @@ void GodotNoctua::track_purchase(String order_id, String amount, String currency
 }
 
 void GodotNoctua::track_ad_revenue(String ad_source, String revenue, String currency, Dictionary params) {
-	if (!initialized) {
+	if (!require_initialized("track_ad_revenue")) {
 		return;
 	}
 	double value = 0.0;
@@ -219,7 +249,7 @@ void GodotNoctua::track_ad_revenue(String ad_source, String revenue, String curr
 // ── Session ───────────────────────────────────────────────────────────────────
 
 void GodotNoctua::set_session_tag(String session_name) {
-	if (!initialized) {
+	if (!require_initialized("set_session_tag")) {
 		return;
 	}
 	NSString *tag = to_ns(session_name);
@@ -229,7 +259,7 @@ void GodotNoctua::set_session_tag(String session_name) {
 }
 
 String GodotNoctua::get_session_tag() {
-	if (!initialized) {
+	if (!require_initialized("get_session_tag")) {
 		return String();
 	}
 	return to_godot(read_on_main(^{
@@ -238,7 +268,7 @@ String GodotNoctua::get_session_tag() {
 }
 
 void GodotNoctua::set_session_extra_params(Dictionary params) {
-	if (!initialized) {
+	if (!require_initialized("set_session_extra_params")) {
 		return;
 	}
 	NSDictionary *payload = to_ns_dictionary(params);
@@ -250,7 +280,7 @@ void GodotNoctua::set_session_extra_params(Dictionary params) {
 // ── Experiments ───────────────────────────────────────────────────────────────
 
 void GodotNoctua::set_experiment(String experiment) {
-	if (!initialized) {
+	if (!require_initialized("set_experiment")) {
 		return;
 	}
 	NSString *ns_experiment = to_ns(experiment);
@@ -260,7 +290,7 @@ void GodotNoctua::set_experiment(String experiment) {
 }
 
 String GodotNoctua::get_experiment() {
-	if (!initialized) {
+	if (!require_initialized("get_experiment")) {
 		return String();
 	}
 	return to_godot(read_on_main(^{
@@ -269,7 +299,7 @@ String GodotNoctua::get_experiment() {
 }
 
 void GodotNoctua::set_general_experiment(String experiment) {
-	if (!initialized) {
+	if (!require_initialized("set_general_experiment")) {
 		return;
 	}
 	NSString *ns_experiment = to_ns(experiment);
@@ -279,7 +309,7 @@ void GodotNoctua::set_general_experiment(String experiment) {
 }
 
 String GodotNoctua::get_general_experiment(String key) {
-	if (!initialized) {
+	if (!require_initialized("get_general_experiment")) {
 		return String();
 	}
 	NSString *ns_key = to_ns(key);
@@ -291,7 +321,7 @@ String GodotNoctua::get_general_experiment(String key) {
 // ── Network State ─────────────────────────────────────────────────────────────
 
 void GodotNoctua::on_online() {
-	if (!initialized) {
+	if (!require_initialized("on_online")) {
 		return;
 	}
 	run_on_main(^{
@@ -300,7 +330,7 @@ void GodotNoctua::on_online() {
 }
 
 void GodotNoctua::on_offline() {
-	if (!initialized) {
+	if (!require_initialized("on_offline")) {
 		return;
 	}
 	run_on_main(^{
@@ -326,4 +356,7 @@ void GodotNoctua::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("on_online"), &GodotNoctua::on_online);
 	ClassDB::bind_method(D_METHOD("on_offline"), &GodotNoctua::on_offline);
+
+	ClassDB::bind_method(D_METHOD("is_initialized"), &GodotNoctua::is_initialized);
+	ClassDB::bind_method(D_METHOD("get_init_error"), &GodotNoctua::get_init_error);
 }

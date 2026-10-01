@@ -7,8 +7,11 @@ import android.content.Intent;
 import android.util.Log;
 import android.view.View;
 
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Objects;
+import java.util.Set;
 
 import org.godotengine.godot.Dictionary;
 import org.godotengine.godot.Godot;
@@ -47,6 +50,16 @@ public class GodotNoctua extends GodotPlugin {
 
     /** {@code true} after {@link Noctua#init} completes successfully. */
     private boolean _inited = false;
+
+    /** Why the SDK is not initialised; empty once initialisation succeeded. */
+    private String _initError = "not initialized yet: onMainCreate has not run";
+
+    /** A plain decimal: optional sign, digits with an optional fraction, optional exponent. */
+    private static final java.util.regex.Pattern DECIMAL =
+            java.util.regex.Pattern.compile("[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?");
+
+    /** Methods already warned about being called before a successful init (warn once each). */
+    private final Set<String> _warnedNotInitialized = Collections.synchronizedSet(new HashSet<>());
 
     /**
      * Required constructor — called by the Godot plugin loader.
@@ -91,8 +104,9 @@ public class GodotNoctua extends GodotPlugin {
                 emptyList(),
                 new NoctuaBillingConfig()
             );
-            Noctua.INSTANCE.initApp();
+            startKoinIfNeeded();
             _inited = true;
+            _initError = "";
             Log.i(TAG, "Noctua SDK initialized successfully (Koin started). Sandbox: " + com.noctuagames.sdk.utils.NoctuaLog.INSTANCE.getSandboxEnabled());
             
             try {
@@ -107,8 +121,12 @@ public class GodotNoctua extends GodotPlugin {
             } catch (Exception err) {
                 Log.w(TAG, "Failed to get Adjust SDK version: " + err.getMessage());
             }
-        } catch (Exception e) {
-            Log.e(TAG, "Noctua SDK initialization failed: " + e.getMessage(), e);
+        } catch (Throwable e) {
+            // Throwable, not Exception: a missing dependency surfaces as an Error
+            // (e.g. NoClassDefFoundError) and must not leave the SDK silently uninitialised.
+            _initError = e.getClass().getSimpleName() + ": " + e.getMessage();
+            Log.e(TAG, "Noctua SDK initialization failed: " + e.getMessage()
+                    + " (is noctuagg.json in the export preset's include filter?)", e);
         }
         return null;
     }
@@ -170,7 +188,7 @@ public class GodotNoctua extends GodotPlugin {
      */
     @UsedByGodot
     public void track_event(final String event, final Dictionary params) {
-        if (!_inited) return;
+        if (!requireInitialized("track_event")) return;
         Objects.requireNonNull(getActivity()).runOnUiThread(() -> {
             Noctua.INSTANCE.trackCustomEvent(event, toSafeMap(params));
             Log.d(TAG, "track_event: " + event);
@@ -196,11 +214,18 @@ public class GodotNoctua extends GodotPlugin {
     @UsedByGodot
     public void track_purchase(final String orderId, final String amount,
                                final String currency, final Dictionary payload) {
-        if (!_inited) return;
+        if (!requireInitialized("track_purchase")) return;
+        // Parse here, on the caller's thread: an invalid value used to throw
+        // NumberFormatException inside the UI-thread Runnable and crash the app.
+        final Double value = parseAmount(amount);
+        if (value == null) {
+            Log.e(TAG, "track_purchase: invalid purchase amount '" + amount + "' - expected a dot-decimal number such as \"4.99\". Not tracked.");
+            return;
+        }
         Objects.requireNonNull(getActivity()).runOnUiThread(() -> {
             Noctua.INSTANCE.trackPurchase(
                 orderId,
-                Double.parseDouble(amount),
+                value,
                 currency,
                 toSafeMap(payload)
             );
@@ -235,11 +260,18 @@ public class GodotNoctua extends GodotPlugin {
     @UsedByGodot
     public void track_ad_revenue(final String adSource, final String revenue,
                                  final String currency, final Dictionary params) {
-        if (!_inited) return;
+        if (!requireInitialized("track_ad_revenue")) return;
+        // Parse here, on the caller's thread: an invalid value used to throw
+        // NumberFormatException inside the UI-thread Runnable and crash the app.
+        final Double value = parseAmount(revenue);
+        if (value == null) {
+            Log.e(TAG, "track_ad_revenue: invalid ad revenue '" + revenue + "' - expected a dot-decimal number such as \"4.99\". Not tracked.");
+            return;
+        }
         Objects.requireNonNull(getActivity()).runOnUiThread(() -> {
             Noctua.INSTANCE.trackAdRevenue(
                 adSource,
-                Double.parseDouble(revenue),
+                value,
                 currency,
                 toSafeMap(params)
             );
@@ -265,7 +297,7 @@ public class GodotNoctua extends GodotPlugin {
      */
     @UsedByGodot
     public void set_session_tag(final String sessionName) {
-        if (!_inited) return;
+        if (!requireInitialized("set_session_tag")) return;
         Objects.requireNonNull(getActivity()).runOnUiThread(() -> {
             Noctua.INSTANCE.setSessionTag(sessionName);
             Log.d(TAG, "set_session_tag: " + sessionName);
@@ -287,7 +319,7 @@ public class GodotNoctua extends GodotPlugin {
      */
     @UsedByGodot
     public String get_session_tag() {
-        if (!_inited) return "";
+        if (!requireInitialized("get_session_tag")) return "";
         return Noctua.INSTANCE.getSessionTag();
     }
 
@@ -308,7 +340,7 @@ public class GodotNoctua extends GodotPlugin {
      */
     @UsedByGodot
     public void set_session_extra_params(final Dictionary params) {
-        if (!_inited) return;
+        if (!requireInitialized("set_session_extra_params")) return;
         Objects.requireNonNull(getActivity()).runOnUiThread(() -> {
             Noctua.INSTANCE.setSessionExtraParams(toSafeMap(params));
             Log.d(TAG, "set_session_extra_params: " + params.size() + " keys");
@@ -334,7 +366,7 @@ public class GodotNoctua extends GodotPlugin {
      */
     @UsedByGodot
     public void set_experiment(final String experiment) {
-        if (!_inited) return;
+        if (!requireInitialized("set_experiment")) return;
         Objects.requireNonNull(getActivity()).runOnUiThread(() -> {
             Noctua.INSTANCE.setExperiment(experiment);
             Log.d(TAG, "set_experiment: " + experiment);
@@ -356,7 +388,7 @@ public class GodotNoctua extends GodotPlugin {
      */
     @UsedByGodot
     public String get_experiment() {
-        if (!_inited) return "";
+        if (!requireInitialized("get_experiment")) return "";
         return Noctua.INSTANCE.getExperiment();
     }
 
@@ -376,7 +408,7 @@ public class GodotNoctua extends GodotPlugin {
      */
     @UsedByGodot
     public void set_general_experiment(final String experiment) {
-        if (!_inited) return;
+        if (!requireInitialized("set_general_experiment")) return;
         Objects.requireNonNull(getActivity()).runOnUiThread(() -> {
             Noctua.INSTANCE.setGeneralExperiment(experiment);
             Log.d(TAG, "set_general_experiment: " + experiment);
@@ -400,7 +432,7 @@ public class GodotNoctua extends GodotPlugin {
      */
     @UsedByGodot
     public String get_general_experiment(final String experimentKey) {
-        if (!_inited) return "";
+        if (!requireInitialized("get_general_experiment")) return "";
         return Noctua.INSTANCE.getGeneralExperiment(experimentKey);
     }
 
@@ -420,7 +452,7 @@ public class GodotNoctua extends GodotPlugin {
      */
     @UsedByGodot
     public void on_online() {
-        if (!_inited) return;
+        if (!requireInitialized("on_online")) return;
         Objects.requireNonNull(getActivity()).runOnUiThread(() -> {
             Noctua.INSTANCE.onOnline();
             Log.d(TAG, "on_online");
@@ -441,7 +473,7 @@ public class GodotNoctua extends GodotPlugin {
      */
     @UsedByGodot
     public void on_offline() {
-        if (!_inited) return;
+        if (!requireInitialized("on_offline")) return;
         Objects.requireNonNull(getActivity()).runOnUiThread(() -> {
             Noctua.INSTANCE.onOffline();
             Log.d(TAG, "on_offline");
@@ -487,6 +519,79 @@ public class GodotNoctua extends GodotPlugin {
      * @param dict Godot Dictionary from GDScript; {@code null}-safe
      * @return a new {@link HashMap} with coerced values; never {@code null}
      */
+    /**
+     * Native SDK 0.35+ starts its Koin container at process start (InternalNoctuaApp),
+     * so {@link Noctua#initApp()} then throws KoinApplicationAlreadyStartedException.
+     * That used to abort initialisation after {@link Noctua#init} had already succeeded,
+     * leaving every call ignored. Older native SDKs still need initApp(), so call it and
+     * treat "already started" as success.
+     */
+    private static void startKoinIfNeeded() {
+        try {
+            Noctua.INSTANCE.initApp();
+        } catch (Throwable t) {
+            if (!"KoinApplicationAlreadyStartedException".equals(t.getClass().getSimpleName())) {
+                throw t;
+            }
+            Log.i(TAG, "Koin already started by the native SDK at process start; skipping initApp()");
+        }
+    }
+
+    // ── Diagnostics ──────────────────────────────────────────────────────────
+
+    /**
+     * Whether the Noctua SDK initialised successfully. When {@code false}, every
+     * tracking call is ignored (and warned about once per method).
+     *
+     * @return {@code true} after a successful {@link Noctua#init}
+     */
+    @UsedByGodot
+    public boolean is_initialized() {
+        return _inited;
+    }
+
+    /**
+     * The reason initialisation failed, so GDScript can surface it.
+     *
+     * @return the failure reason, or an empty string once init succeeded
+     */
+    @UsedByGodot
+    public String get_init_error() {
+        return _initError;
+    }
+
+    /**
+     * Returns {@code true} when the SDK is ready. Otherwise logs, once per method,
+     * that the call was ignored, instead of dropping it silently.
+     */
+    private boolean requireInitialized(String method) {
+        if (_inited) return true;
+        if (_warnedNotInitialized.add(method)) {
+            Log.w(TAG, method + " ignored: Noctua SDK is not initialized"
+                    + " (" + _initError + ")"
+                    + ". Check that noctuagg.json is in the export preset's include filter.");
+        }
+        return false;
+    }
+
+    /**
+     * Parses a dot-decimal amount sent from GDScript as a String.
+     *
+     * @return the value, or {@code null} when it is empty, malformed, NaN or infinite
+     */
+    static Double parseAmount(String value) {
+        if (value == null) return null;
+        String trimmed = value.trim();
+        // Plain decimals only, matching the iOS bridge: rejects "4,99", "4.99f", hex, "NaN".
+        if (!DECIMAL.matcher(trimmed).matches()) return null;
+        try {
+            double parsed = Double.parseDouble(trimmed);
+            return Double.isNaN(parsed) || Double.isInfinite(parsed) ? null : parsed;
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
     private HashMap<String, Object> toSafeMap(Dictionary dict) {
         HashMap<String, Object> map = new HashMap<>();
         if (dict == null) return map;

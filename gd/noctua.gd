@@ -24,8 +24,35 @@ func _ready() -> void:
 	if Engine.has_singleton("GodotNoctua"):
 		_noctua = Engine.get_singleton("GodotNoctua")
 		print("Noctua: native SDK connected")
+		# The native SDK initialises before any script runs. If it failed, every
+		# call below is ignored, so say so here instead of failing silently.
+		# Call directly: on Android, has_method() reports false for every plugin method.
+		if not bool(_noctua.is_initialized()):
+			push_error("Noctua: native SDK failed to initialise (%s). Every noctua call will be ignored. Is noctuagg.json in the export preset's include filter?" % _noctua.get_init_error())
 	else:
 		push_warning("Noctua plugin not found! Running without native SDK.")
+
+## Returns [code]true[/code] when the native Noctua SDK initialised successfully.
+##
+## When [code]false[/code], every tracking call is ignored by the native plugin.
+## Always [code]false[/code] in the editor, where no native plugin is loaded.
+##
+## [b]Example:[/b]
+## [codeblock]
+## if not noctua.is_initialized():
+##     push_warning("Analytics disabled: " + noctua.get_init_error())
+## [/codeblock]
+func is_initialized() -> bool:
+	if _noctua != null:
+		return bool(_noctua.is_initialized())
+	return false
+
+## Returns why the native SDK failed to initialise, or [code]""[/code] when it
+## succeeded or no native plugin is loaded.
+func get_init_error() -> String:
+	if _noctua != null:
+		return str(_noctua.get_init_error())
+	return ""
 
 # ── Event Tracking ────────────────────────────────────────────────────────────
 

@@ -223,6 +223,10 @@ Maps to: `Noctua.trackCustomEvent(eventName, payload)`
 
 ### Revenue Tracking
 
+> Amounts are dot-decimal **Strings** (`"4.99"`). Both platforms accept plain decimals
+> only; anything else (`"4,99"`, `""`, `"Rp 15.000"`, `"NaN"`) is rejected and logged, and
+> the call is not tracked. Build the String from a number: `"%.2f" % price` or `str(value)`.
+
 #### `track_purchase(order_id: String, amount: String, currency: String, payload: Dictionary) -> void`
 
 Tracks an in-app purchase (IAP) transaction.
@@ -348,6 +352,25 @@ Maps to: `Noctua.getGeneralExperiment(experimentKey)`
 
 ---
 
+### Initialisation status
+
+#### `is_initialized() -> bool`
+
+`true` once the native SDK initialised. When `false`, every tracking call is ignored
+(the native plugin logs that once per function). Always `false` in the editor.
+
+#### `get_init_error() -> String`
+
+Why initialisation failed, e.g. `IllegalArgumentException: Failed to load noctuagg.json`,
+or `""` once it succeeded. `noctua.gd` also reports it with `push_error()` at start-up.
+
+```gdscript
+if not noctua.is_initialized():
+    push_warning("Analytics disabled: " + noctua.get_init_error())
+```
+
+---
+
 ### Network State
 
 #### `on_online() -> void`
@@ -451,6 +474,9 @@ the app bundle).
 | Error | Cause | Fix |
 |-------|-------|-----|
 | `Failed to load noctuagg.json` | File missing from APK assets | Add `noctuagg.json` to the export preset's include filter (see Common Setup) |
+| Every call ignored; `noctua.get_init_error()` is `KoinApplicationAlreadyStartedException` | Plugin built before this fix, with native SDK 0.35+ (Koin is auto-started at process start) | Rebuild the AAR from current source |
+| `push_error`: `Noctua: native SDK failed to initialise (...)` | See the reason in the message; usually `Failed to load noctuagg.json` | Add `noctuagg.json` to the export preset's include filter |
+| `<method>: invalid purchase amount` / `invalid ad revenue` | Amount String is not a plain decimal | Pass `"%.2f" % price` or `str(value)`, never a display label |
 | `Crashlytics build ID is missing` | `firebase-crashlytics-gradle` plugin not applied | Ensure `build.gradle` has the Crashlytics classpath + `apply plugin` |
 | `Invalid plugin config file` | AAR missing from `android/plugins/` | Run `./gradlew assembleGodot3Release` and copy the AAR |
 | Godot 4: `Transform's input file does not exist: …/addons/android/plugins/…aar` | Relative path in `_get_android_libraries()` | Return a `res://android/plugins/…` path |
