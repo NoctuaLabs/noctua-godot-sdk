@@ -51,6 +51,12 @@ public class GodotNoctua extends GodotPlugin {
     /** {@code true} after {@link Noctua#init} completes successfully. */
     private boolean _inited = false;
 
+    /**
+     * Detailed trace logging, on only when {@code noctuagg.json} has
+     * {@code "sandboxEnabled": true}. Errors and warnings are always logged.
+     */
+    private boolean _sandbox = false;
+
     /** Why the SDK is not initialised; empty once initialisation succeeded. */
     private String _initError = "not initialized yet: onMainCreate has not run";
 
@@ -68,7 +74,6 @@ public class GodotNoctua extends GodotPlugin {
      */
     public GodotNoctua(Godot godot) {
         super(godot);
-        Log.i(TAG, "GodotNoctua plugin constructor called");
     }
 
     /**
@@ -97,22 +102,28 @@ public class GodotNoctua extends GodotPlugin {
      */
     @Override
     public View onMainCreate(Activity activity) {
-        Log.i(TAG, "onMainCreate: Initializing Noctua SDK...");
+        final long started = System.currentTimeMillis();
+        _sandbox = readSandboxFlag(activity);
+        trace("init 1/4: start (noctuagg.json sandboxEnabled=true, Godot plugin GodotNoctua)");
         try {
             Noctua.INSTANCE.init(
                 activity,
                 emptyList(),
                 new NoctuaBillingConfig()
             );
+            trace("init 2/4: Noctua.init() done - config loaded, services created");
             startKoinIfNeeded();
             _inited = true;
             _initError = "";
-            Log.i(TAG, "Noctua SDK initialized successfully (Koin started). Sandbox: " + com.noctuagames.sdk.utils.NoctuaLog.INSTANCE.getSandboxEnabled());
-            
+            // The native SDK's own flag is authoritative (it can be overridden at runtime).
+            _sandbox = com.noctuagames.sdk.utils.NoctuaLog.INSTANCE.getSandboxEnabled();
+            Log.i(TAG, "Noctua SDK initialized (sandbox=" + _sandbox + ")");
+            trace("init 4/4: complete in " + (System.currentTimeMillis() - started) + " ms - tracking calls are now accepted");
+
             try {
                 Noctua.INSTANCE.getAdjustSdkVersion(version -> {
                     if (version != null) {
-                        Log.i(TAG, "Adjust SDK is initialized. Version: " + version);
+                        trace("adjust: initialized, SDK version " + version);
                     } else {
                         Log.w(TAG, "Adjust SDK is NOT initialized (AdjustService is null or disabled)");
                     }
@@ -127,6 +138,7 @@ public class GodotNoctua extends GodotPlugin {
             _initError = e.getClass().getSimpleName() + ": " + e.getMessage();
             Log.e(TAG, "Noctua SDK initialization failed: " + e.getMessage()
                     + " (is noctuagg.json in the export preset's include filter?)", e);
+            trace("init: FAILED after " + (System.currentTimeMillis() - started) + " ms - every tracking call will be ignored");
         }
         return null;
     }
@@ -140,7 +152,10 @@ public class GodotNoctua extends GodotPlugin {
     public void onMainResume() {
         super.onMainResume();
         Objects.requireNonNull(getActivity()).runOnUiThread(() -> {
-            if (_inited) Noctua.INSTANCE.onResume();
+            if (_inited) {
+                Noctua.INSTANCE.onResume();
+                trace("lifecycle: onResume forwarded to native SDK");
+            }
         });
     }
 
@@ -153,7 +168,10 @@ public class GodotNoctua extends GodotPlugin {
     public void onMainPause() {
         super.onMainPause();
         Objects.requireNonNull(getActivity()).runOnUiThread(() -> {
-            if (_inited) Noctua.INSTANCE.onPause();
+            if (_inited) {
+                Noctua.INSTANCE.onPause();
+                trace("lifecycle: onPause forwarded to native SDK");
+            }
         });
     }
 
@@ -166,7 +184,10 @@ public class GodotNoctua extends GodotPlugin {
     public void onMainDestroy() {
         super.onMainDestroy();
         Objects.requireNonNull(getActivity()).runOnUiThread(() -> {
-            if (_inited) Noctua.INSTANCE.onDestroy();
+            if (_inited) {
+                Noctua.INSTANCE.onDestroy();
+                trace("lifecycle: onDestroy forwarded to native SDK");
+            }
         });
     }
 
@@ -189,9 +210,10 @@ public class GodotNoctua extends GodotPlugin {
     @UsedByGodot
     public void track_event(final String event, final Dictionary params) {
         if (!requireInitialized("track_event")) return;
+        trace("track_event: event='" + event + "' params=" + toSafeMap(params));
         Objects.requireNonNull(getActivity()).runOnUiThread(() -> {
             Noctua.INSTANCE.trackCustomEvent(event, toSafeMap(params));
-            Log.d(TAG, "track_event: " + event);
+            trace("track_event: sent to native SDK");
         });
     }
 
@@ -222,6 +244,7 @@ public class GodotNoctua extends GodotPlugin {
             Log.e(TAG, "track_purchase: invalid purchase amount '" + amount + "' - expected a dot-decimal number such as \"4.99\". Not tracked.");
             return;
         }
+        trace("track_purchase: order='" + orderId + "' amount='" + amount + "' (parsed " + value + ") currency='" + currency + "' payload=" + toSafeMap(payload));
         Objects.requireNonNull(getActivity()).runOnUiThread(() -> {
             Noctua.INSTANCE.trackPurchase(
                 orderId,
@@ -229,7 +252,7 @@ public class GodotNoctua extends GodotPlugin {
                 currency,
                 toSafeMap(payload)
             );
-            Log.d(TAG, "track_purchase: order=" + orderId + " " + amount + " " + currency);
+            trace("track_purchase: sent to native SDK");
         });
     }
 
@@ -268,6 +291,7 @@ public class GodotNoctua extends GodotPlugin {
             Log.e(TAG, "track_ad_revenue: invalid ad revenue '" + revenue + "' - expected a dot-decimal number such as \"4.99\". Not tracked.");
             return;
         }
+        trace("track_ad_revenue: source='" + adSource + "' revenue='" + revenue + "' (parsed " + value + ") currency='" + currency + "' params=" + toSafeMap(params));
         Objects.requireNonNull(getActivity()).runOnUiThread(() -> {
             Noctua.INSTANCE.trackAdRevenue(
                 adSource,
@@ -275,7 +299,7 @@ public class GodotNoctua extends GodotPlugin {
                 currency,
                 toSafeMap(params)
             );
-            Log.d(TAG, "track_ad_revenue: " + adSource + " " + revenue + " " + currency);
+            trace("track_ad_revenue: sent to native SDK");
         });
     }
 
@@ -298,9 +322,10 @@ public class GodotNoctua extends GodotPlugin {
     @UsedByGodot
     public void set_session_tag(final String sessionName) {
         if (!requireInitialized("set_session_tag")) return;
+        trace("set_session_tag: tag='" + sessionName + "'");
         Objects.requireNonNull(getActivity()).runOnUiThread(() -> {
             Noctua.INSTANCE.setSessionTag(sessionName);
-            Log.d(TAG, "set_session_tag: " + sessionName);
+            trace("set_session_tag: sent to native SDK");
         });
     }
 
@@ -320,7 +345,9 @@ public class GodotNoctua extends GodotPlugin {
     @UsedByGodot
     public String get_session_tag() {
         if (!requireInitialized("get_session_tag")) return "";
-        return Noctua.INSTANCE.getSessionTag();
+        String result = Noctua.INSTANCE.getSessionTag();
+        trace("get_session_tag -> '" + result + "'");
+        return result;
     }
 
     /**
@@ -341,9 +368,10 @@ public class GodotNoctua extends GodotPlugin {
     @UsedByGodot
     public void set_session_extra_params(final Dictionary params) {
         if (!requireInitialized("set_session_extra_params")) return;
+        trace("set_session_extra_params: " + toSafeMap(params));
         Objects.requireNonNull(getActivity()).runOnUiThread(() -> {
             Noctua.INSTANCE.setSessionExtraParams(toSafeMap(params));
-            Log.d(TAG, "set_session_extra_params: " + params.size() + " keys");
+            trace("set_session_extra_params: sent to native SDK");
         });
     }
 
@@ -367,9 +395,10 @@ public class GodotNoctua extends GodotPlugin {
     @UsedByGodot
     public void set_experiment(final String experiment) {
         if (!requireInitialized("set_experiment")) return;
+        trace("set_experiment: experiment='" + experiment + "'");
         Objects.requireNonNull(getActivity()).runOnUiThread(() -> {
             Noctua.INSTANCE.setExperiment(experiment);
-            Log.d(TAG, "set_experiment: " + experiment);
+            trace("set_experiment: sent to native SDK");
         });
     }
 
@@ -389,7 +418,9 @@ public class GodotNoctua extends GodotPlugin {
     @UsedByGodot
     public String get_experiment() {
         if (!requireInitialized("get_experiment")) return "";
-        return Noctua.INSTANCE.getExperiment();
+        String result = Noctua.INSTANCE.getExperiment();
+        trace("get_experiment -> '" + result + "'");
+        return result;
     }
 
     /**
@@ -409,9 +440,10 @@ public class GodotNoctua extends GodotPlugin {
     @UsedByGodot
     public void set_general_experiment(final String experiment) {
         if (!requireInitialized("set_general_experiment")) return;
+        trace("set_general_experiment: experiment='" + experiment + "'");
         Objects.requireNonNull(getActivity()).runOnUiThread(() -> {
             Noctua.INSTANCE.setGeneralExperiment(experiment);
-            Log.d(TAG, "set_general_experiment: " + experiment);
+            trace("set_general_experiment: sent to native SDK");
         });
     }
 
@@ -433,7 +465,9 @@ public class GodotNoctua extends GodotPlugin {
     @UsedByGodot
     public String get_general_experiment(final String experimentKey) {
         if (!requireInitialized("get_general_experiment")) return "";
-        return Noctua.INSTANCE.getGeneralExperiment(experimentKey);
+        String result = Noctua.INSTANCE.getGeneralExperiment(experimentKey);
+        trace("get_general_experiment: key='" + experimentKey + "' -> '" + result + "'");
+        return result;
     }
 
     // ── Network state ─────────────────────────────────────────────────────────
@@ -453,9 +487,10 @@ public class GodotNoctua extends GodotPlugin {
     @UsedByGodot
     public void on_online() {
         if (!requireInitialized("on_online")) return;
+        trace("on_online: device back online, flushing queued events");
         Objects.requireNonNull(getActivity()).runOnUiThread(() -> {
             Noctua.INSTANCE.onOnline();
-            Log.d(TAG, "on_online");
+            trace("on_online: sent to native SDK");
         });
     }
 
@@ -474,9 +509,10 @@ public class GodotNoctua extends GodotPlugin {
     @UsedByGodot
     public void on_offline() {
         if (!requireInitialized("on_offline")) return;
+        trace("on_offline: device offline, queueing events");
         Objects.requireNonNull(getActivity()).runOnUiThread(() -> {
             Noctua.INSTANCE.onOffline();
-            Log.d(TAG, "on_offline");
+            trace("on_offline: sent to native SDK");
         });
     }
 
@@ -526,14 +562,15 @@ public class GodotNoctua extends GodotPlugin {
      * leaving every call ignored. Older native SDKs still need initApp(), so call it and
      * treat "already started" as success.
      */
-    private static void startKoinIfNeeded() {
+    private void startKoinIfNeeded() {
         try {
             Noctua.INSTANCE.initApp();
+            trace("init 3/4: Koin started by initApp() (older native SDK)");
         } catch (Throwable t) {
             if (!"KoinApplicationAlreadyStartedException".equals(t.getClass().getSimpleName())) {
                 throw t;
             }
-            Log.i(TAG, "Koin already started by the native SDK at process start; skipping initApp()");
+            trace("init 3/4: Koin already started by the native SDK at process start; initApp() skipped");
         }
     }
 
@@ -558,6 +595,39 @@ public class GodotNoctua extends GodotPlugin {
     @UsedByGodot
     public String get_init_error() {
         return _initError;
+    }
+
+    /**
+     * Whether detailed sandbox logging is on ({@code noctuagg.json} {@code sandboxEnabled}).
+     *
+     * @return {@code true} in sandbox builds
+     */
+    @UsedByGodot
+    public boolean is_sandbox_enabled() {
+        return _sandbox;
+    }
+
+    /** Detailed log line, emitted only when sandbox is enabled. */
+    private void trace(String message) {
+        if (_sandbox) Log.i(TAG, "[sandbox] " + message);
+    }
+
+    /**
+     * Reads {@code noctua.sandboxEnabled} from the bundled {@code noctuagg.json}, so the
+     * init steps can be traced before the native SDK has loaded its config. Any problem
+     * (missing file, bad JSON) means "not sandbox"; init then reports the real error.
+     */
+    private static boolean readSandboxFlag(Activity activity) {
+        try (java.io.InputStream in = activity.getAssets().open("noctuagg.json")) {
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[4096];
+            for (int n; (n = in.read(buf)) > 0; ) out.write(buf, 0, n);
+            org.json.JSONObject root = new org.json.JSONObject(out.toString("UTF-8"));
+            org.json.JSONObject noctua = root.optJSONObject("noctua");
+            return noctua != null && noctua.optBoolean("sandboxEnabled", false);
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     /**

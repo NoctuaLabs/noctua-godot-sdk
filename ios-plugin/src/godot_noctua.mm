@@ -11,6 +11,33 @@ GodotNoctua *GodotNoctua::instance = nullptr;
 
 static NSString *const kLogPrefix = @"[GodotNoctua]";
 
+/// Detailed trace logging, on only when noctuagg.json has "sandboxEnabled": true.
+/// Errors and warnings are always logged.
+static bool sandbox_enabled = false;
+
+static void trace(NSString *format, ...) NS_FORMAT_FUNCTION(1, 2);
+static void trace(NSString *format, ...) {
+	if (!sandbox_enabled) {
+		return;
+	}
+	va_list args;
+	va_start(args, format);
+	NSString *message = [[NSString alloc] initWithFormat:format arguments:args];
+	va_end(args);
+	NSLog(@"%@ [sandbox] %@", kLogPrefix, message);
+}
+
+/// Reads noctua.sandboxEnabled from the bundled noctuagg.json, so the init steps can be
+/// traced before the SDK loads its config. Missing file or bad JSON means "not sandbox".
+static bool read_sandbox_flag() {
+	NSString *path = [[NSBundle mainBundle] pathForResource:@"noctuagg" ofType:@"json"];
+	NSData *data = path != nil ? [NSData dataWithContentsOfFile:path] : nil;
+	id root = data != nil ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+	id noctua = [root isKindOfClass:[NSDictionary class]] ? root[@"noctua"] : nil;
+	id flag = [noctua isKindOfClass:[NSDictionary class]] ? noctua[@"sandboxEnabled"] : nil;
+	return [flag respondsToSelector:@selector(boolValue)] && [flag boolValue];
+}
+
 /// Swift runtime names tried, in order, when resolving the SDK class.
 static NSString *const kNoctuaSDKClassNames[] = { @"NoctuaSDK.Noctua", @"Noctua" };
 
@@ -143,7 +170,9 @@ void GodotNoctua::initialize_sdk() {
 	if (initialized) {
 		return;
 	}
-	NSLog(@"%@ Initializing Noctua SDK...", kLogPrefix);
+	const CFAbsoluteTime started = CFAbsoluteTimeGetCurrent();
+	sandbox_enabled = read_sandbox_flag();
+	trace(@"init 1/4: start (noctuagg.json sandboxEnabled=true)");
 
 	Class<NoctuaSDKAPI> sdk = noctua_sdk_class();
 	if (sdk == nil) {
@@ -156,6 +185,7 @@ void GodotNoctua::initialize_sdk() {
 		ERR_PRINT("GodotNoctua: linked NoctuaSDK does not match this plugin — see the Xcode console for missing methods.");
 		return;
 	}
+	trace(@"init 2/4: NoctuaSDK linked, all selectors present");
 
 	NSError *error = nil;
 	// Same defaults as the Swift overload: no server-side verification, StoreKit 1.
@@ -164,15 +194,18 @@ void GodotNoctua::initialize_sdk() {
 		init_error = to_godot(error.localizedDescription);
 		ERR_PRINT("GodotNoctua: Noctua SDK initialization failed: " + to_godot(error.localizedDescription) +
 				" (is noctuagg.json in the app bundle?)");
+		trace(@"init: FAILED after %.0f ms - every tracking call will be ignored", (CFAbsoluteTimeGetCurrent() - started) * 1000);
 		return;
 	}
+	trace(@"init 3/4: initNoctua succeeded");
 
 	initialized = true;
-	NSLog(@"%@ Noctua SDK initialized", kLogPrefix);
+	NSLog(@"%@ Noctua SDK initialized (sandbox=%d)", kLogPrefix, sandbox_enabled);
+	trace(@"init 4/4: complete in %.0f ms - tracking calls are now accepted", (CFAbsoluteTimeGetCurrent() - started) * 1000);
 
 	[sdk getAdjustSdkVersionWithCompletion:^(NSString *_Nullable version) {
 		if (version != nil) {
-			NSLog(@"%@ Adjust SDK is initialized. Version: %@", kLogPrefix, version);
+			trace(@"adjust: initialized, SDK version %@", version);
 		} else {
 			NSLog(@"%@ Adjust SDK is NOT initialized (disabled or missing from noctuagg.json)", kLogPrefix);
 		}
@@ -205,6 +238,10 @@ String GodotNoctua::get_init_error() const {
 	return init_error;
 }
 
+bool GodotNoctua::is_sandbox_enabled() const {
+	return sandbox_enabled;
+}
+
 // ── Event Tracking ────────────────────────────────────────────────────────────
 
 void GodotNoctua::track_event(String event, Dictionary params) {
@@ -213,8 +250,10 @@ void GodotNoctua::track_event(String event, Dictionary params) {
 	}
 	NSString *ns_event = to_ns(event);
 	NSDictionary *payload = to_ns_dictionary(params);
+	trace(@"track_event: event='%@' params=%@", ns_event, payload);
 	run_on_main(^{
 		[noctua_sdk_class() trackCustomEvent:ns_event payload:payload];
+		trace(@"track_event: sent to native SDK");
 	});
 }
 
@@ -227,8 +266,10 @@ void GodotNoctua::track_purchase(String order_id, String amount, String currency
 	NSString *ns_order_id = to_ns(order_id);
 	NSString *ns_currency = to_ns(currency);
 	NSDictionary *ns_payload = to_ns_dictionary(payload);
+	trace(@"track_purchase: order='%@' amount='%@' (parsed %g) currency='%@' payload=%@", ns_order_id, to_ns(amount), value, ns_currency, ns_payload);
 	run_on_main(^{
 		[noctua_sdk_class() trackPurchaseWithOrderId:ns_order_id amount:value currency:ns_currency extraPayload:ns_payload];
+		trace(@"track_purchase: sent to native SDK");
 	});
 }
 
@@ -241,8 +282,10 @@ void GodotNoctua::track_ad_revenue(String ad_source, String revenue, String curr
 	NSString *ns_source = to_ns(ad_source);
 	NSString *ns_currency = to_ns(currency);
 	NSDictionary *ns_params = to_ns_dictionary(params);
+	trace(@"track_ad_revenue: source='%@' revenue='%@' (parsed %g) currency='%@' params=%@", ns_source, to_ns(revenue), value, ns_currency, ns_params);
 	run_on_main(^{
 		[noctua_sdk_class() trackAdRevenueWithSource:ns_source revenue:value currency:ns_currency extraPayload:ns_params];
+		trace(@"track_ad_revenue: sent to native SDK");
 	});
 }
 
@@ -253,8 +296,10 @@ void GodotNoctua::set_session_tag(String session_name) {
 		return;
 	}
 	NSString *tag = to_ns(session_name);
+	trace(@"set_session_tag: tag='%@'", tag);
 	run_on_main(^{
 		[noctua_sdk_class() setSessionTagWithTag:tag];
+		trace(@"set_session_tag: sent to native SDK");
 	});
 }
 
@@ -262,9 +307,11 @@ String GodotNoctua::get_session_tag() {
 	if (!require_initialized("get_session_tag")) {
 		return String();
 	}
-	return to_godot(read_on_main(^{
+	NSString *result = read_on_main(^{
 		return [noctua_sdk_class() getSessionTags];
-	}));
+	});
+	trace(@"get_session_tag -> '%@'", result);
+	return to_godot(result);
 }
 
 void GodotNoctua::set_session_extra_params(Dictionary params) {
@@ -272,8 +319,10 @@ void GodotNoctua::set_session_extra_params(Dictionary params) {
 		return;
 	}
 	NSDictionary *payload = to_ns_dictionary(params);
+	trace(@"set_session_extra_params: %@", payload);
 	run_on_main(^{
 		[noctua_sdk_class() setSessionExtraParamsWithPayload:payload];
+		trace(@"set_session_extra_params: sent to native SDK");
 	});
 }
 
@@ -284,8 +333,10 @@ void GodotNoctua::set_experiment(String experiment) {
 		return;
 	}
 	NSString *ns_experiment = to_ns(experiment);
+	trace(@"set_experiment: experiment='%@'", ns_experiment);
 	run_on_main(^{
 		[noctua_sdk_class() setExperimentWithExperiment:ns_experiment];
+		trace(@"set_experiment: sent to native SDK");
 	});
 }
 
@@ -293,9 +344,11 @@ String GodotNoctua::get_experiment() {
 	if (!require_initialized("get_experiment")) {
 		return String();
 	}
-	return to_godot(read_on_main(^{
+	NSString *result = read_on_main(^{
 		return [noctua_sdk_class() getExperiment];
-	}));
+	});
+	trace(@"get_experiment -> '%@'", result);
+	return to_godot(result);
 }
 
 void GodotNoctua::set_general_experiment(String experiment) {
@@ -303,8 +356,10 @@ void GodotNoctua::set_general_experiment(String experiment) {
 		return;
 	}
 	NSString *ns_experiment = to_ns(experiment);
+	trace(@"set_general_experiment: experiment='%@'", ns_experiment);
 	run_on_main(^{
 		[noctua_sdk_class() setGeneralExperimentWithExperiment:ns_experiment];
+		trace(@"set_general_experiment: sent to native SDK");
 	});
 }
 
@@ -313,9 +368,11 @@ String GodotNoctua::get_general_experiment(String key) {
 		return String();
 	}
 	NSString *ns_key = to_ns(key);
-	return to_godot(read_on_main(^{
+	NSString *result = read_on_main(^{
 		return [noctua_sdk_class() getGeneralExperimentWithExperimentKey:ns_key];
-	}));
+	});
+	trace(@"get_general_experiment: key='%@' -> '%@'", ns_key, result);
+	return to_godot(result);
 }
 
 // ── Network State ─────────────────────────────────────────────────────────────
@@ -326,6 +383,7 @@ void GodotNoctua::on_online() {
 	}
 	run_on_main(^{
 		[noctua_sdk_class() onOnline];
+		trace(@"on_online: sent to native SDK");
 	});
 }
 
@@ -335,6 +393,7 @@ void GodotNoctua::on_offline() {
 	}
 	run_on_main(^{
 		[noctua_sdk_class() onOffline];
+		trace(@"on_offline: sent to native SDK");
 	});
 }
 
@@ -359,4 +418,5 @@ void GodotNoctua::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("is_initialized"), &GodotNoctua::is_initialized);
 	ClassDB::bind_method(D_METHOD("get_init_error"), &GodotNoctua::get_init_error);
+	ClassDB::bind_method(D_METHOD("is_sandbox_enabled"), &GodotNoctua::is_sandbox_enabled);
 }

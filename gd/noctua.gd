@@ -29,6 +29,8 @@ func _ready() -> void:
 		# Call directly: on Android, has_method() reports false for every plugin method.
 		if not bool(_noctua.is_initialized()):
 			push_error("Noctua: native SDK failed to initialise (%s). Every noctua call will be ignored. Is noctuagg.json in the export preset's include filter?" % _noctua.get_init_error())
+		elif is_sandbox_enabled():
+			print("Noctua: native SDK initialized (sandbox: detailed [sandbox] logs in logcat / Xcode console)")
 	else:
 		push_warning("Noctua plugin not found! Running without native SDK.")
 
@@ -45,6 +47,14 @@ func _ready() -> void:
 func is_initialized() -> bool:
 	if _noctua != null:
 		return bool(_noctua.is_initialized())
+	return false
+
+## Returns [code]true[/code] when [code]noctuagg.json[/code] has
+## [code]"sandboxEnabled": true[/code]. The native plugin then logs every step from
+## init to each tracking call, prefixed [code][sandbox][/code]. Errors are always logged.
+func is_sandbox_enabled() -> bool:
+	if _noctua != null:
+		return bool(_noctua.is_sandbox_enabled())
 	return false
 
 ## Returns why the native SDK failed to initialise, or [code]""[/code] when it

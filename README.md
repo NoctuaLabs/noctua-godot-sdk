@@ -450,6 +450,34 @@ iOS SDK is therefore a Podfile version bump, not a plugin rebuild.
 
 ---
 
+## Logging
+
+| Level | Production (`sandboxEnabled: false`) | Sandbox (`sandboxEnabled: true`) |
+|---|---|---|
+| Errors and warnings (init failure, invalid amount, call ignored before init) | Logged | Logged |
+| `Noctua SDK initialized (sandbox=...)` | Logged once | Logged once |
+| Detailed trace, prefixed `[sandbox]` | Off | Every step from init to each tracking call |
+
+The sandbox trace covers init (`init 1/4` … `4/4` with timing), lifecycle
+forwarding, Adjust's version, and every call with its parameters, the parsed amount,
+and `sent to native SDK`:
+
+```
+[sandbox] init 1/4: start (noctuagg.json sandboxEnabled=true, Godot plugin GodotNoctua)
+[sandbox] init 2/4: Noctua.init() done - config loaded, services created
+[sandbox] init 3/4: Koin already started by the native SDK at process start; initApp() skipped
+Noctua SDK initialized (sandbox=true)
+[sandbox] init 4/4: complete in 257 ms - tracking calls are now accepted
+[sandbox] track_purchase: order='ORDER-1' amount='4.99' (parsed 4.99) currency='USD' payload={sku=test}
+[sandbox] track_purchase: sent to native SDK
+```
+
+Android: `adb logcat -s com.slabgames.noctua.GodotNoctua` (stream it: some vendor
+builds prune app logs, so `logcat -d` afterwards can miss them). iOS: Xcode console,
+prefix `[GodotNoctua] [sandbox]`. `noctua.is_sandbox_enabled()` reports the mode.
+
+---
+
 ## Credential Files
 
 Both files are gitignored. Place them in the project root before exporting:

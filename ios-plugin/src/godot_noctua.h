@@ -61,6 +61,7 @@ public:
 	// Diagnostics
 	bool is_initialized() const;
 	String get_init_error() const;
+	bool is_sandbox_enabled() const;
 
 	GodotNoctua();
 	~GodotNoctua();
