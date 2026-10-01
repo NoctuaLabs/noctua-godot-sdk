@@ -40,3 +40,6 @@ CLAUDE.md
 ios-plugin/.godot/
 ios-plugin/.build/
 ios-plugin/bin/
+
+# Packaged addon zips
+dist/

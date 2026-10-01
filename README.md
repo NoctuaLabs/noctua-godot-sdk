@@ -39,6 +39,8 @@ sdk/
 │       └── noctua_xcode_project.rb
 ├── gd/
 │   └── noctua.gd                 # GDScript autoload singleton (Android + iOS)
+├── addon/godot3/, addon/godot4/  # Editor plugin scripts (packaged into the zips)
+├── scripts/package_addon.sh      # Builds dist/GodotNoctua-godot<3|4>-<build>.zip
 └── README.md
 ```
 
@@ -47,7 +49,62 @@ Sample projects using this SDK as a git submodule:
 
 ---
 
-## Common Setup
+## Install as an editor plugin (recommended)
+
+Godot plugin zips are built per engine line, because Godot 3 and 4 editor scripts
+use different syntax:
+
+| Engine | Zip |
+|---|---|
+| Godot 3.6.x | `GodotNoctua-godot3-<build>.zip` |
+| Godot 4.2+ | `GodotNoctua-godot4-<build>.zip` |
+
+1. Extract the zip into the project root, so you get `res://addons/GodotNoctua/`
+   ([Installing plugins](https://docs.godotengine.org/en/3.6/tutorials/plugins/editor/installing_plugins.html)).
+2. **Project > Project Settings > Plugins** → enable **GodotNoctua**.
+3. Put `noctuagg.json` (and `google-services.json` / `GoogleService-Info.plist`) in the project root.
+4. Check the editor **Output** panel and fix every `Noctua:` warning.
+
+What the plugin does while enabled:
+
+| Task | Godot 3.6 | Godot 4.2+ |
+|---|---|---|
+| Registers the `noctua` autoload (removed when disabled) | Yes | Yes |
+| Android plugin | Copies `GodotNoctua.gdap` + AAR into `res://android/plugins/` | Injects the AAR and Maven dependency at export |
+| iOS plugin | Copies it into `res://ios/plugins/GodotNoctua/` | Same |
+| Adds `noctuagg.json` to every Android export (no include filter needed) | Yes | Yes |
+| Warns about missing config and wrong export preset settings | Yes | Yes |
+
+Native files are refreshed whenever the addon's `BUILD` stamp changes, so updating
+is: delete `addons/GodotNoctua/`, extract the new zip, reopen the project.
+
+You still set these in **Project > Export** yourself:
+
+| Preset | Godot 3.6 | Godot 4.2+ |
+|---|---|---|
+| Android | Use Custom Build, Plugins > GodotNoctua, Min Sdk 23 | Use Gradle Build |
+| iOS | Plugins > GodotNoctua | Plugins > GodotNoctua |
+
+iOS still needs `ios-plugin/scripts/setup_xcode.sh` after every export (see [iOS Installation](#ios-installation)).
+
+**Migrating from the submodule setup:** remove the `noctua` autoload that points to
+`res://sdk/gd/noctua.gd` (the plugin warns while it exists), and delete any older
+`.gdap` / `addons/GodotNoctua` copy you made by hand.
+
+### Building the zips
+
+```bash
+(cd android-plugin && ./gradlew assembleGodot3Release assembleGodot4Release)
+ios-plugin/scripts/build.sh 3.x && ios-plugin/scripts/build.sh 4.x
+scripts/package_addon.sh 3.x      # -> dist/GodotNoctua-godot3-<build>.zip
+scripts/package_addon.sh 4.x      # -> dist/GodotNoctua-godot4-<build>.zip
+```
+
+`<build>` is the SDK commit; `-dirty` is appended when the sources have uncommitted changes.
+
+---
+
+## Common Setup (manual / submodule)
 
 Add this repository to the game as a submodule and register the autoload:
 

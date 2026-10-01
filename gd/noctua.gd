@@ -2,8 +2,9 @@ extends Node
 
 ## Noctua SDK — GDScript bridge (autoload singleton).
 ##
-## Auto-registered as [b]noctua[/b] in project.godot via:
-## [code]noctua="*res://sdk/gd/noctua.gd"[/code]
+## Registered as the [b]noctua[/b] autoload by the GodotNoctua editor plugin
+## ([code]res://addons/GodotNoctua/noctua.gd[/code]), or by hand when the SDK is a
+## submodule: [code]noctua="*res://sdk/gd/noctua.gd"[/code]
 ##
 ## Wraps the GodotNoctua Android plugin (@UsedByGodot Java bridge) and
 ## mirrors the Noctua Native SDK public API in GDScript snake_case naming.
