@@ -101,6 +101,30 @@ scripts/package_addon.sh 4.x      # -> dist/GodotNoctua-godot4-<build>.zip
 ```
 
 `<build>` is the SDK commit; `-dirty` is appended when the sources have uncommitted changes.
+`scripts/fetch_godot_libs.sh` downloads the Godot engine AARs the Android build needs.
+
+### CI and releases
+
+`.github/workflows/ci.yml` runs on a self-hosted macOS runner labelled `noctua-godot`
+(Xcode is required for the iOS plugin). Every push and pull request from this
+repository builds both AARs, both iOS plugins and both addon zips, and uploads
+them as a workflow artifact. Pull requests from forks are not run.
+
+Releases are automatic on `main`, driven by [Conventional Commits](https://www.conventionalcommits.org)
+since the last `v*` tag:
+
+| Commit | Release |
+|---|---|
+| `feat!:` or `BREAKING CHANGE:` in the body | major |
+| `feat:` | minor |
+| `fix:` / `perf:` | patch |
+| `docs:`, `chore:`, `ci:`, … | none |
+
+The workflow then tags `v<version>` and publishes a GitHub Release with
+`GodotNoctua-godot3-v<version>.zip`, `GodotNoctua-godot4-v<version>.zip`, the raw
+AARs, the iOS plugin zips and `SHA256SUMS.txt`. The version is written into the
+packaged `plugin.cfg`. To release on demand, run the **CI** workflow manually
+(Actions → CI → Run workflow) with a bump or an exact version.
 
 ---
 

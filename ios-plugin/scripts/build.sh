@@ -14,6 +14,8 @@
 # An iOS plugin is compiled against the engine's own headers, so the matching
 # Godot source is cloned into ios-plugin/.godot/<3.x|4.x> and a short engine
 # build is run once to produce its generated headers (*.gen.h / *.gen.inc).
+# Set GODOT_SRC_DIR to keep that clone somewhere else (CI caches it outside
+# the checkout so it survives workspace cleans).
 # Compiler flags follow godotengine/godot-ios-plugins; debug builds must define
 # DEBUG_ENABLED exactly like the engine's debug export template.
 
@@ -38,7 +40,8 @@ case "$GODOT_MAJOR" in
 	*) usage ;;
 esac
 
-readonly GODOT_SRC="$PLUGIN_DIR/.godot/$GODOT_MAJOR"
+readonly GODOT_SRC_ROOT="${GODOT_SRC_DIR:-$PLUGIN_DIR/.godot}"
+readonly GODOT_SRC="$GODOT_SRC_ROOT/$GODOT_MAJOR"
 readonly OBJ_DIR="$PLUGIN_DIR/.build/$GODOT_MAJOR"
 readonly OUT_DIR="$PLUGIN_DIR/bin/$GODOT_MAJOR/$PLUGIN_NAME"
 
@@ -64,6 +67,7 @@ fetch_godot_source() {
 		rm -rf "$GODOT_SRC"
 	fi
 	echo "Cloning Godot $GODOT_TAG"
+	mkdir -p "$GODOT_SRC_ROOT"
 	git clone --quiet --depth 1 --branch "$GODOT_TAG" https://github.com/godotengine/godot.git "$GODOT_SRC"
 }
 
@@ -88,7 +92,7 @@ generate_engine_headers() {
 	echo "Generating Godot $GODOT_TAG headers (partial engine build)"
 	(
 		cd "$GODOT_SRC"
-		"$scons" platform="$platform" target="$target" -j"$(sysctl -n hw.ncpu)" >"$PLUGIN_DIR/.godot/scons-$GODOT_MAJOR.log" 2>&1 &
+		"$scons" platform="$platform" target="$target" -j"$(sysctl -n hw.ncpu)" >"$GODOT_SRC_ROOT/scons-$GODOT_MAJOR.log" 2>&1 &
 		local pid=$!
 		for _ in $(seq 1 600); do
 			local done_all=1
@@ -102,7 +106,7 @@ generate_engine_headers() {
 			sleep 1
 		done
 		kill "$pid" 2>/dev/null || true
-		echo "error: engine headers were not generated — see .godot/scons-$GODOT_MAJOR.log" >&2
+		echo "error: engine headers were not generated — see $GODOT_SRC_ROOT/scons-$GODOT_MAJOR.log" >&2
 		exit 1
 	)
 }

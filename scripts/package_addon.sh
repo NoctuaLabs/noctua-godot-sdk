@@ -4,6 +4,9 @@
 #
 # Usage: scripts/package_addon.sh <3.x|4.x>
 #
+# Set NOCTUA_VERSION (e.g. 1.2.0) for a release: it is written into plugin.cfg
+# and the zip is named GodotNoctua-godot<3|4>-v<version>.zip instead.
+#
 # Build the native plugins first:
 #   (cd android-plugin && ./gradlew assembleGodot3Release assembleGodot4Release)
 #   ios-plugin/scripts/build.sh 3.x    # and/or 4.x
@@ -42,6 +45,9 @@ mkdir -p "$ADDON/native/android" "$ADDON/native/ios"
 cp "$ROOT/addon/godot$MAJOR/"*.gd "$ROOT/addon/godot$MAJOR/plugin.cfg" "$ADDON/"
 cp "$ROOT/gd/noctua.gd" "$ADDON/"
 cp "$ROOT/LICENSE" "$ADDON/"
+if [ -n "${NOCTUA_VERSION:-}" ]; then
+  sed -i '' "s/^version=.*/version=\"$NOCTUA_VERSION\"/" "$ADDON/plugin.cfg"
+fi
 echo "$BUILD" > "$ADDON/BUILD"
 # Keep Godot from importing or exporting the native binaries as resources.
 touch "$ADDON/native/.gdignore"
@@ -54,7 +60,9 @@ fi
 cp -R "$IOS_BIN" "$ADDON/native/ios/"
 
 mkdir -p "$ROOT/dist"
-OUT="$ROOT/dist/GodotNoctua-godot$MAJOR-$BUILD.zip"
+SUFFIX="$BUILD"
+[ -n "${NOCTUA_VERSION:-}" ] && SUFFIX="v$NOCTUA_VERSION"
+OUT="$ROOT/dist/GodotNoctua-godot$MAJOR-$SUFFIX.zip"
 rm -f "$OUT"
 (cd "$STAGE" && zip -qry "$OUT" addons -x '*.DS_Store')
 echo "$OUT"
