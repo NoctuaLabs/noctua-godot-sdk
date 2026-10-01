@@ -63,6 +63,7 @@ use different syntax:
    ([Installing plugins](https://docs.godotengine.org/en/3.6/tutorials/plugins/editor/installing_plugins.html)).
 2. **Project > Project Settings > Plugins** → enable **GodotNoctua**.
 3. Put `noctuagg.json` (and `google-services.json` / `GoogleService-Info.plist`) in the project root.
+   The Android package name must be listed in `google-services.json`, or the Gradle build fails.
 4. Check the editor **Output** panel and fix every `Noctua:` warning.
 
 What the plugin does while enabled:
@@ -73,6 +74,8 @@ What the plugin does while enabled:
 | Android plugin | Copies `GodotNoctua.gdap` + AAR into `res://android/plugins/` | Injects the AAR and Maven dependency at export |
 | iOS plugin | Copies it into `res://ios/plugins/GodotNoctua/` | Same |
 | Adds `noctuagg.json` to every Android export (no include filter needed) | Yes | Yes |
+| Firebase: copies `google-services.json` into `android/build/` and applies the google-services 4.5.0 + Crashlytics 3.0.7 Gradle plugins (removed again when the file is absent) | Yes | Yes |
+| Facebook: adds `facebook.android.appId` / `clientToken` from `noctuagg.json` to the manifest meta-data | Patches `android/build/AndroidManifest.xml` | Manifest export hook |
 | Warns about missing config and wrong export preset settings | Yes | Yes |
 
 Native files are refreshed whenever the addon's `BUILD` stamp changes, so updating
