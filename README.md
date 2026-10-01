@@ -412,6 +412,8 @@ Maps to: `Noctua.getExperiment()`
 #### `set_general_experiment(experiment: String) -> void`
 
 Sets a general-purpose experiment value (supports multiple concurrent experiment axes).
+The native SDK stores the value as both key and value, so read it back with
+`get_general_experiment("pricing_v3")`.
 
 ```gdscript
 noctua.set_general_experiment("pricing_v3")
@@ -423,11 +425,15 @@ Maps to: `Noctua.setGeneralExperiment(experiment)`
 
 #### `get_general_experiment(key: String) -> String`
 
-Retrieves a general-purpose experiment value by key, or `""` if not found.
+Retrieves a general-purpose experiment value by key, or `""` if not found. The key is
+the value passed to `set_general_experiment`.
 
 ```gdscript
-var value: String = noctua.get_general_experiment("pricing")
+var value: String = noctua.get_general_experiment("pricing_v3")   # "pricing_v3"
 ```
+
+> On Android, setters are applied on the UI thread. Getters return the value queued by
+> the most recent setter, so a read right after a write already sees it.
 
 Maps to: `Noctua.getGeneralExperiment(experimentKey)`
 

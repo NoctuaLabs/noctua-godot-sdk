@@ -233,7 +233,8 @@ func get_experiment() -> String:
 ## Maps to: [code]Noctua.setGeneralExperiment(experiment)[/code]
 ##
 ## Supports multiple concurrent experiment axes unlike [method set_experiment]
-## which tracks a single experiment slot.
+## which tracks a single experiment slot. The native SDK stores the value as both
+## key and value: read it back with [code]get_general_experiment(experiment)[/code].
 ##
 ## [b]Example:[/b]
 ## [codeblock]
@@ -251,10 +252,11 @@ func set_general_experiment(experiment: String) -> void:
 ##
 ## [b]Example:[/b]
 ## [codeblock]
-## var value: String = noctua.get_general_experiment("pricing")
+## noctua.set_general_experiment("pricing_v3")
+## var value: String = noctua.get_general_experiment("pricing_v3")  # "pricing_v3"
 ## [/codeblock]
 ##
-## [param key]    Key used when the experiment was stored via [method set_general_experiment].
+## [param key]    The value passed to [method set_general_experiment] (used as the key).
 ## [return]       The stored experiment value, or [code]""[/code] if not found.
 func get_general_experiment(key: String) -> String:
 	if _noctua != null:

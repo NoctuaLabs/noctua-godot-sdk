@@ -10,8 +10,10 @@ import android.view.View;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.godotengine.godot.Dictionary;
 import org.godotengine.godot.Godot;
@@ -63,6 +65,17 @@ public class GodotNoctua extends GodotPlugin {
     /** A plain decimal: optional sign, digits with an optional fraction, optional exponent. */
     private static final java.util.regex.Pattern DECIMAL =
             java.util.regex.Pattern.compile("[+-]?(\\d+\\.?\\d*|\\.\\d+)([eE][+-]?\\d+)?");
+
+    /**
+     * Values a setter has queued to the UI thread but the native SDK has not applied yet.
+     * Getters return these first, so a read right after a write sees the new value
+     * (setters are asynchronous, getters are not). Keys: see {@link #PENDING_SESSION_TAG}.
+     */
+    private final Map<String, String> _pending = new ConcurrentHashMap<>();
+    private static final String PENDING_SESSION_TAG = "session_tag";
+    private static final String PENDING_EXPERIMENT = "experiment";
+    /** Prefix + key; the native one-argument setGeneralExperiment stores the value as its own key. */
+    private static final String PENDING_GENERAL_EXPERIMENT = "general_experiment:";
 
     /** Methods already warned about being called before a successful init (warn once each). */
     private final Set<String> _warnedNotInitialized = Collections.synchronizedSet(new HashSet<>());
@@ -323,8 +336,10 @@ public class GodotNoctua extends GodotPlugin {
     public void set_session_tag(final String sessionName) {
         if (!requireInitialized("set_session_tag")) return;
         trace("set_session_tag: tag='" + sessionName + "'");
+        _pending.put(PENDING_SESSION_TAG, sessionName);
         Objects.requireNonNull(getActivity()).runOnUiThread(() -> {
             Noctua.INSTANCE.setSessionTag(sessionName);
+            _pending.remove(PENDING_SESSION_TAG, sessionName);
             trace("set_session_tag: sent to native SDK");
         });
     }
@@ -345,8 +360,9 @@ public class GodotNoctua extends GodotPlugin {
     @UsedByGodot
     public String get_session_tag() {
         if (!requireInitialized("get_session_tag")) return "";
-        String result = Noctua.INSTANCE.getSessionTag();
-        trace("get_session_tag -> '" + result + "'");
+        String pending = _pending.get(PENDING_SESSION_TAG);
+        String result = pending != null ? pending : Noctua.INSTANCE.getSessionTag();
+        trace("get_session_tag -> '" + result + "'" + (pending != null ? " (queued, not yet applied)" : ""));
         return result;
     }
 
@@ -396,8 +412,10 @@ public class GodotNoctua extends GodotPlugin {
     public void set_experiment(final String experiment) {
         if (!requireInitialized("set_experiment")) return;
         trace("set_experiment: experiment='" + experiment + "'");
+        _pending.put(PENDING_EXPERIMENT, experiment);
         Objects.requireNonNull(getActivity()).runOnUiThread(() -> {
             Noctua.INSTANCE.setExperiment(experiment);
+            _pending.remove(PENDING_EXPERIMENT, experiment);
             trace("set_experiment: sent to native SDK");
         });
     }
@@ -418,15 +436,17 @@ public class GodotNoctua extends GodotPlugin {
     @UsedByGodot
     public String get_experiment() {
         if (!requireInitialized("get_experiment")) return "";
-        String result = Noctua.INSTANCE.getExperiment();
-        trace("get_experiment -> '" + result + "'");
+        String pending = _pending.get(PENDING_EXPERIMENT);
+        String result = pending != null ? pending : Noctua.INSTANCE.getExperiment();
+        trace("get_experiment -> '" + result + "'" + (pending != null ? " (queued, not yet applied)" : ""));
         return result;
     }
 
     /**
-     * Sets a general-purpose experiment value identified by a key.
-     * Unlike {@link #set_experiment}, this supports multiple concurrent
-     * experiment axes (e.g. UI experiment + monetisation experiment).
+     * Sets a general-purpose experiment value. The native SDK stores the value
+     * as both key and value, so read it back with
+     * {@code get_general_experiment(experiment)}. Unlike {@link #set_experiment},
+     * this supports multiple concurrent experiment axes.
      *
      * <p>Maps to: {@code Noctua.setGeneralExperiment(experiment)}
      *
@@ -441,8 +461,11 @@ public class GodotNoctua extends GodotPlugin {
     public void set_general_experiment(final String experiment) {
         if (!requireInitialized("set_general_experiment")) return;
         trace("set_general_experiment: experiment='" + experiment + "'");
+        final String pendingKey = PENDING_GENERAL_EXPERIMENT + experiment;
+        _pending.put(pendingKey, experiment);
         Objects.requireNonNull(getActivity()).runOnUiThread(() -> {
             Noctua.INSTANCE.setGeneralExperiment(experiment);
+            _pending.remove(pendingKey, experiment);
             trace("set_general_experiment: sent to native SDK");
         });
     }
@@ -454,19 +477,21 @@ public class GodotNoctua extends GodotPlugin {
      *
      * <p>GDScript usage:
      * <pre>
-     *   var value: String = noctua.get_general_experiment("pricing")
+     *   var value: String = noctua.get_general_experiment("pricing_v3")
      * </pre>
      *
-     * @param experimentKey key used when the experiment was stored via
-     *                      {@link #set_general_experiment}
+     * @param experimentKey the value passed to {@link #set_general_experiment}
+     *                      (the native SDK uses it as the key)
      * @return the experiment value, or an empty string if the SDK is not
      *         initialised or the key does not exist
      */
     @UsedByGodot
     public String get_general_experiment(final String experimentKey) {
         if (!requireInitialized("get_general_experiment")) return "";
-        String result = Noctua.INSTANCE.getGeneralExperiment(experimentKey);
-        trace("get_general_experiment: key='" + experimentKey + "' -> '" + result + "'");
+        String pending = _pending.get(PENDING_GENERAL_EXPERIMENT + experimentKey);
+        String result = pending != null ? pending : Noctua.INSTANCE.getGeneralExperiment(experimentKey);
+        trace("get_general_experiment: key='" + experimentKey + "' -> '" + result + "'"
+                + (pending != null ? " (queued, not yet applied)" : ""));
         return result;
     }
 
